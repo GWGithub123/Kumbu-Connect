@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}SMS Activity — {{ cbo.name }}{% endblock %}
+
+{% block content %}
+<div class="container admin-page">
+  <section class="admin-hero">
+    <div>
+      <h1><i class="fas fa-signal-messenger"></i> SMS Activity: {{ cbo.name }}</h1>
+      <p>Manage the keyword and prompt, inspect subscriber state, review transcripts, and simulate inbound SMS messages locally.</p>
+    </div>
+    <div class="admin-hero-actions">
+      {% if current_user.role == 'funder' %}
+        <a href="{{ url_for('main.community_feedback_admin') }}" class="btn btn-outline">Back to SMS Admin</a>
+      {% else %}
+        <a href="{{ url_for('main.cbo_dashboard') }}" class="btn btn-outline">Back to Profile</a>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="admin-stats-grid">
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Keyword</span>
+      <strong class="admin-stat-value">{{ summary.keyword }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Subscribers</span>
+      <strong class="admin-stat-value">{{ summary.subscribers }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Responses</span>
+      <strong class="admin-stat-value">{{ summary.responses }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Twilio Ready</span>
+      <strong class="admin-stat-value">{{ 'Yes' if twilio_ready else 'No' }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Firestore Sync</span>
+      <strong class="admin-stat-value">{{ 'Yes' if firestore_ready else 'No' }}</strong>
+    </div>
+  </section>
+
+  <section class="admin-panel firestore-structure-panel">
+    <div class="admin-panel-header">
+      <h2><i class="fas fa-database"></i> Firestore Storage Structure</h2>
+    </div>
+    <p class="panel-help-text">Community feedback for this CBO is grouped under the keyword-style Firestore document shown below.</p>
+    <div class="firestore-path-box">
+      <strong>{{ firestore_document_path }}</strong>
+      <span>Subcollections: <code>community_subscribers</code> and <code>community_feedback</code></span>
+    </div>
+    {% if summary.last_firestore_sync_at %}
+      <p class="firestore-sync-note">Last completed feedback sync: {{ summary.last_firestore_sync_at.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+    {% else %}
+      <p class="firestore-sync-note">No completed feedback has been synced to Firestore yet.</p>
+    {% endif %}
+  </section>
+
+  <div class="admin-layout-grid admin-layout-grid--detail">
+    <section class="admin-panel">
+      <div class="admin-panel-header">
+        <h2><i class="fas fa-sliders-h"></i> Messaging Settings</h2>
+      </div>
+      <form method="POST" action="{{ url_for('main.update_community_feedback_settings', cbo_id=cbo.id) }}" class="settings-form">
+        <div class="form-group">
+          <label for="sms_keyword">SMS Keyword</label>
+          <input type="text" id="sms_keyword" name="sms_keyword" value="{{ cbo.sms_keyword or '' }}" placeholder="Example: KIWA">
+        </div>
+        <div class="form-group">
+          <label for="community_prompt">Custom First Prompt</label>
+          <textarea id="community_prompt" name="community_prompt" rows="5" placeholder="Optional custom onboarding message">{{ cbo.community_prompt or '' }}</textarea>
+        </div>
+        <label class="checkbox-row">
+          <input type="checkbox" name="community_feedback_enabled" {% if cbo.community_feedback_enabled %}checked{% endif %}>
+          <span>Allow this CBO to accept SMS feedback</span>
+        </label>
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+      </form>
+    </section>
+
+    <section class="admin-panel" id="simulator">
+      <div class="admin-panel-header">
+        <h2><i class="fas fa-vial"></i> Local SMS Simulator</h2>
+      </div>
+      <p class="panel-help-text">Use this to test the full flow without Twilio. This form submits the keyword, rating, help count, and your custom feedback in sequence, then stores the result locally and in Firestore.</p>
+      <div class="simulator-steps-box">
+        <strong>This single submit button will run the full sequence</strong>
+        <ol>
+          <li>Keyword: <code>{{ summary.keyword }}</code></li>
+          <li>Your chosen rating</li>
+          <li>Your chosen help count</li>
+          <li>Your custom feedback message</li>
+        </ol>
+      </div>
+      <form method="POST" action="{{ url_for('main.simulate_community_feedback_demo', cbo_id=cbo.id) }}" class="settings-form">
+        <div class="form-group">
+          <label for="from_number">Phone Number</label>
+          <input type="text" id="from_number" name="from_number" placeholder="+254700000000">
+        </div>
+        <div class="form-group">
+          <label for="rating">Rating</label>
+          <input type="text" id="rating" name="rating" value="8" placeholder="1 to 10">
+        </div>
+        <div class="form-group">
+          <label for="help_count">Times Helped</label>
+          <input type="text" id="help_count" name="help_count" value="3" placeholder="Number of times helped">
+        </div>
+        <div class="form-group">
+          <label for="body">Custom Feedback Message</label>
+          <textarea id="body" name="body" rows="5" placeholder="Describe exactly how this CBO helped you or your community"></textarea>
+        </div>
+        <div class="simulator-button-row">
+          <button type="submit" class="btn btn-primary btn-block">Submit Full Test Response</button>
+        </div>
+      </form>
+
+      {% if latest_simulation %}
+        <div class="simulator-reply-box">
+          {% if latest_message %}
+            <span class="simulator-reply-label">Latest submitted flow</span>
+            <p>{{ latest_message }}</p>
+          {% endif %}
+          <span class="simulator-reply-label">Latest system reply</span>
+          <p>{{ latest_simulation }}</p>
+        </div>
+      {% endif %}
+    </section>
+  </div>
+
+  <section class="admin-panel">
+    <div class="admin-panel-header">
+      <h2><i class="fas fa-users"></i> Subscribers</h2>
+    </div>
+    {% if subscribers %}
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Conversation State</th>
+              <th>Last Response</th>
+              <th>Last Check-In</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for subscriber in subscribers %}
+              <tr>
+                <td>{{ subscriber.phone_number }}</td>
+                <td>{{ subscriber.status }}</td>
+                <td>{{ subscriber.conversation_state }}</td>
+                <td>{{ subscriber.last_response_at.strftime('%Y-%m-%d %H:%M') if subscriber.last_response_at else '—' }}</td>
+                <td>{{ subscriber.last_checkin_sent_at.strftime('%Y-%m-%d %H:%M') if subscriber.last_checkin_sent_at else '—' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="admin-empty-state">No subscribers have enrolled for this CBO yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="admin-panel">
+    <div class="admin-panel-header">
+      <h2><i class="fas fa-scroll"></i> Response Log</h2>
+    </div>
+    {% if feedback_entries %}
+      <div class="response-log-list">
+        {% for feedback in feedback_entries %}
+          <article class="response-log-card">
+            <div class="response-log-head">
+              <div>
+                <strong>{{ feedback.subscriber.phone_number }}</strong>
+                <span class="response-log-meta">{{ feedback.cycle_type | title }} • {{ feedback.status }}</span>
+              </div>
+              <div class="response-log-score">
+                {{ feedback.rating if feedback.rating is not none else '—' }}/10
+              </div>
+            </div>
+            <p class="response-sync-status">
+              Firestore sync:
+              {% if feedback.firestore_synced_at %}
+                synced {{ feedback.firestore_synced_at.strftime('%Y-%m-%d %H:%M UTC') }}
+              {% else %}
+                pending or unavailable
+              {% endif %}
+            </p>
+            <p class="response-log-story">{{ feedback.anecdote or 'No anecdote provided yet.' }}</p>
+            <div class="transcript-bubbles">
+              {% for message in feedback | transcript_messages %}
+                <div class="transcript-bubble transcript-bubble--{{ message.direction }}">
+                  <span class="transcript-direction">{{ message.direction }}</span>
+                  <p>{{ message.message }}</p>
+                </div>
+              {% endfor %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="admin-empty-state">No feedback records exist for this CBO yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,484 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.get('name', cbo.name) }} — Kumbu Connect{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <!-- ── PROFILE ONE-PAGER ────────────────────────────────────── -->
+  <div class="profile-page">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    {# ── CBO type helpers (used for KPI labels & chart titles) ── #}
+    {# Defaults first — Jinja2 if/elif scoping means branch-assigned vars
+       are not visible outside the branch, so we set top-level defaults
+       and use a lookup dict to override them. #}
+    {% set _type_labels = {
+      'education':  ['Total Sessions',      'Students Served',   'Resources in Catalogue', 'Avg Session Duration',   'On-Time Returns',  'Most-Used Resource'],
+      'healthcare': ['Total Services',      'Patients Served',   'Equipment Types',        'Avg Treatment Duration', 'Good Outcomes',    'Top Service'],
+      'agriculture':['Total Distributions', 'Farmers Reached',   'Input Types',            'Avg Cycle (days)',       'Compliance Rate',  'Top Input'],
+      'water':      ['Total Interventions', 'Households Served', 'Intervention Types',     'Avg Duration (days)',    'Success Rate',     'Top Intervention'],
+      'tools':      ['Total Rentals',       'Unique Borrowers',  'Tools in Inventory',     'Avg Rental Duration',    'On-Time Returns',  'Most Popular Tool']
+    } %}
+    {% set ctype = (cbo.cbo_identifier or 'tools') | lower %}
+    {% set _lbls = _type_labels.get(ctype, _type_labels['tools']) %}
+    {% set lbl_rentals   = _lbls[0] %}
+    {% set lbl_borrowers = _lbls[1] %}
+    {% set lbl_items     = _lbls[2] %}
+    {% set lbl_duration  = _lbls[3] %}
+    {% set lbl_returns   = _lbls[4] %}
+    {% set lbl_popular   = _lbls[5] %}
+    {% set lead = profile.get('leadership', {}) %}
+    {% set fp = profile.get('flagship_project', {}) %}
+    {% if not fp and cbo.flagship_summary %}
+      {% set fp = _safe_json_inline(cbo.flagship_summary) %}
+    {% endif %}
+    {% set fin = profile.get('financial_data', {}) %}
+    {% set recent_feedback = community_feedback.recent_quotes[0] if community_feedback.recent_quotes else none %}
+    {# Embed labels as a DOM data element — readable from {% block scripts %} which has different scope #}
+    <script id="chart-labels" type="application/json">{"rentals": {{ lbl_rentals|tojson }}, "borrowers": {{ lbl_borrowers|tojson }}, "duration": {{ lbl_duration|tojson }}}</script>
+
+    <section class="profile-header">
+      {# ── Badge + classifications row ── #}
+      <div class="header-badges-row">
+        {% set badge = cbo.data_quality_badge or 'bronze' %}
+        <span class="data-badge data-badge--{{ badge }}">
+          {% if badge == 'gold' %}<i class="fas fa-medal"></i> Data Quality: Gold
+          {% elif badge == 'silver' %}<i class="fas fa-award"></i> Data Quality: Silver
+          {% else %}<i class="fas fa-certificate"></i> Data Quality: Bronze
+          {% endif %}
+        </span>
+        {% if cbo.classifications_json %}
+          {% set classes = cbo.classifications_json | from_json_list %}
+          {% for cls in classes %}
+            <span class="classification-tag classification-tag--{{ cls }}">{{ cls | title }}</span>
+          {% endfor %}
+        {% endif %}
+        {% if cbo.social_impact_score %}
+          <span class="impact-score-badge" title="Social Impact Score out of 100">
+            <i class="fas fa-star"></i> Social Impact: {{ cbo.social_impact_score }}/100
+          </span>
+        {% endif %}
+      </div>
+      <h1>{{ profile.get('name', cbo.name) }}</h1>
+      {% if profile.get('tagline') %}
+        <p class="tagline">{{ profile.tagline }}</p>
+      {% endif %}
+      <div class="header-meta">
+        <span><i class="fas fa-map-marker-alt"></i> <strong>Location:</strong> {{ profile.get('location', cbo.location) or '—' }}</span>
+        <span><i class="fas fa-building"></i> <strong>Type:</strong> {{ profile.get('org_type', cbo.org_type) }}</span>
+        <span class="founded-badge"><span class="label">Founded</span> <span class="year">{{ profile.get('founded_year', cbo.founded_year) or '—' }}</span></span>
+      </div>
+      <p class="focus-inline"><strong>Focus:</strong> {{ profile.get('focus_areas', cbo.focus_areas) or '—' }}</p>
+    </section>
+
+    <!-- ── ROW 1: KPI RIBBON (Operational Metrics) ──────────────── -->
+    {% set ops = profile.get('operational_metrics', {}) %}
+    {% if ops %}
+    <section class="profile-section kpi-ribbon">
+      <div class="kpi-grid">
+        <div class="kpi-item">
+          <span class="kpi-value">{{ ops.total_rentals }}</span>
+          <span class="kpi-label">{{ lbl_rentals }}</span>
+        </div>
+        <div class="kpi-item">
+          <span class="kpi-value">{{ ops.unique_borrowers }}</span>
+          <span class="kpi-label">{{ lbl_borrowers }}</span>
+        </div>
+        <div class="kpi-item">
+          <span class="kpi-value">{{ ops.tools_in_inventory }}</span>
+          <span class="kpi-label">{{ lbl_items }}</span>
+        </div>
+        <div class="kpi-item">
+          <span class="kpi-value">{{ ops.avg_rental_duration_days }} <small>days</small></span>
+          <span class="kpi-label">{{ lbl_duration }}</span>
+        </div>
+        <div class="kpi-item">
+          <span class="kpi-value">{{ ops.on_time_return_rate }}</span>
+          <span class="kpi-label">{{ lbl_returns }}</span>
+        </div>
+        <div class="kpi-item accent">
+          <span class="kpi-value">{{ ops.most_popular_tool }}</span>
+          <span class="kpi-label">{{ lbl_popular }}</span>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    <div class="profile-section-divider" aria-hidden="true">
+      <span>Data Overview</span>
+    </div>
+
+    <div class="profile-overview-layout">
+      <div class="profile-overview-stack">
+        <section class="profile-section compact overview-section">
+          <div class="overview-split overview-split--two">
+            <div class="overview-panel">
+              <h2><i class="fas fa-users-cog"></i> Leadership</h2>
+              <ul class="leadership-list">
+                <li><i class="fas fa-user-tie"></i> <strong>Chair:</strong> {{ lead.get('chairperson', cbo.chairperson) or '—' }}</li>
+                <li><i class="fas fa-user-cog"></i> <strong>Director:</strong> {{ lead.get('program_director', cbo.program_director) or '—' }}</li>
+                <li><i class="fas fa-user-shield"></i> <strong>Finance:</strong> {{ lead.get('finance_lead', cbo.finance_lead) or '—' }}</li>
+              </ul>
+              {% if profile.get('governance_note') %}
+                <p class="governance-note"><em>"{{ profile.governance_note }}"</em></p>
+              {% endif %}
+            </div>
+
+            {% if fin %}
+            <div class="overview-panel overview-panel--tinted">
+              <h2><i class="fas fa-coins"></i> Financial Overview</h2>
+              <div class="financial-grid-compact">
+                <div class="fin-item">
+                  <span class="fin-label">Total Revenue</span>
+                  <span class="fin-value">{{ fin.total_revenue }}</span>
+                </div>
+                <div class="fin-item">
+                  <span class="fin-label">Avg Rental Fee</span>
+                  <span class="fin-value">{{ fin.avg_rental_fee }}</span>
+                </div>
+                <div class="fin-item">
+                  <span class="fin-label">Maintenance</span>
+                  <span class="fin-value">{{ fin.maintenance_costs }}</span>
+                </div>
+                <div class="fin-item">
+                  <span class="fin-label">Damage Fees</span>
+                  <span class="fin-value">{{ fin.damage_fees_collected }}</span>
+                </div>
+              </div>
+              {% if fin.operational_model %}
+                <p class="fin-note"><strong>Model:</strong> {{ fin.operational_model }}</p>
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+
+      <div class="profile-spotlight-column">
+        <section class="profile-section compact impact-section profile-section--flush">
+          <h2><i class="fas fa-chart-line"></i> Social Impact</h2>
+          <div class="impact-grid">
+            {% for impact in profile.get('quantified_impact', []) %}
+              <div class="impact-item-expandable">
+                <div class="impact-item">
+                  <div class="impact-icon">
+                    <i class="fas fa-{{ _icon(impact.get('icon_hint','chart-up')) }}"></i>
+                  </div>
+                  <div class="impact-text">
+                    <strong>{{ impact.metric_value }} {{ impact.metric_unit }}</strong>
+                    <span>{{ impact.description }}</span>
+                  </div>
+                  {% if impact.get('details') %}
+                    <button class="expand-btn" onclick="this.parentElement.nextElementSibling.classList.toggle('open'); this.classList.toggle('open')">
+                      <i class="fas fa-chevron-down"></i>
+                    </button>
+                  {% endif %}
+                </div>
+                {% if impact.get('details') %}
+                  <div class="impact-details">
+                    <div class="detail-row">
+                      <strong>📊 Raw Data:</strong>
+                      <p>{{ impact.details.raw_data }}</p>
+                    </div>
+                    <div class="detail-row">
+                      <strong>🔬 Methodology:</strong>
+                      <p>{{ impact.details.methodology }}</p>
+                    </div>
+                    <div class="detail-row">
+                      <strong>📈 Breakdown:</strong>
+                      <ul>
+                        {% for item in impact.details.breakdown %}
+                          <li>{{ item }}</li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  </div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ── FULL-WIDTH: Flagship + Community Feedback + Join Us ── -->
+    <section class="profile-section compact overview-section">
+      <div class="overview-split {% if fp and profile.get('join_us') %}overview-split--three{% else %}overview-split--two{% endif %}">
+        {% if fp %}
+        <div class="overview-panel flagship">
+          <h2><i class="fas fa-rocket"></i> {{ fp.get('title', 'Flagship Project') }}</h2>
+          <p>{{ fp.get('summary', '') }}</p>
+          {% if fp.get('stats') %}
+          <ul class="flagship-stats">
+            {% for s in fp.stats %}
+              <li><i class="fas fa-check-circle"></i> <strong>{{ s.label }}:</strong> {{ s.value }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="overview-panel story-section community-feedback-story-card">
+          <h2><i class="fas fa-comments"></i> Community Feedback</h2>
+          {% if recent_feedback %}
+            <blockquote>
+              <p>"{{ recent_feedback.quote }}"</p>
+              <footer>
+                {% if recent_feedback.rating is not none %}{{ recent_feedback.rating }}/10{% endif %}
+                {% if recent_feedback.submitted_at %} • {{ recent_feedback.submitted_at }}{% endif %}
+              </footer>
+            </blockquote>
+            <div class="community-feedback-story-stats">
+              <span><strong>{{ community_feedback.responses }}</strong> response{{ 's' if community_feedback.responses != 1 else '' }}</span>
+              <span><strong>{{ community_feedback.subscribers }}</strong> subscriber{{ 's' if community_feedback.subscribers != 1 else '' }}</span>
+              <span><strong>{{ community_feedback.avg_rating if community_feedback.avg_rating is not none else '—' }}</strong> avg rating</span>
+            </div>
+          {% else %}
+            <p class="community-feedback-empty">No community responses have been captured for this CBO yet.</p>
+          {% endif %}
+        </div>
+
+        {% if profile.get('join_us') %}
+        <div class="overview-panel join-section">
+          <h2><i class="fas fa-hands-helping"></i> Join Us</h2>
+          <p>{{ profile.join_us }}</p>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <!-- ── ROW 3: GROWTH CHARTS (2×2 grid) ────────────────────── -->
+    {% set growth_data = _safe_json_inline(cbo.growth_metrics_json) %}
+    {% if growth_data and growth_data|length > 0 %}
+    <div class="profile-section-divider" aria-hidden="true">
+      <span>Growth &amp; Trends</span>
+    </div>
+    <section class="profile-section growth-section">
+      <div class="growth-section-header">
+        <h2><i class="fas fa-chart-line"></i> Growth Metrics Over Time</h2>
+        <div class="chart-period-toggle" id="periodToggle">
+          <button class="period-btn active" data-period="monthly">Monthly</button>
+          <button class="period-btn" data-period="quarterly">Quarterly</button>
+          <button class="period-btn" data-period="annually">Annually</button>
+        </div>
+      </div>
+      <div class="charts-grid-2x2">
+        <div class="chart-container">
+          <h3>{{ lbl_rentals }}</h3>
+          <canvas id="rentalsChart"></canvas>
+          <div class="chart-growth-pills" id="pillsRentals"></div>
+        </div>
+        <div class="chart-container">
+          <h3>{{ lbl_borrowers }}</h3>
+          <canvas id="borrowersChart"></canvas>
+          <div class="chart-growth-pills" id="pillsBorrowers"></div>
+        </div>
+        <div class="chart-container">
+          <h3>Revenue (KSh)</h3>
+          <canvas id="revenueChart"></canvas>
+          <div class="chart-growth-pills" id="pillsRevenue"></div>
+        </div>
+        <div class="chart-container">
+          <h3>Avg {{ lbl_duration }}</h3>
+          <canvas id="durationChart"></canvas>
+          <div class="chart-growth-pills" id="pillsDuration"></div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- ── SOCIAL IMPACT SCORE ─────────────────────────────────── -->
+    {% set rationale = profile.get('social_impact_score_rationale') %}
+    {% if cbo.social_impact_score %}
+    <div class="profile-section-divider profile-section-divider--tight" aria-hidden="true">
+      <span>Score Rationale</span>
+    </div>
+    <section class="profile-section impact-rationale-section" data-score="{{ cbo.social_impact_score }}">
+      <h2><i class="fas fa-star"></i> Social Impact Score: {{ cbo.social_impact_score }}/100</h2>
+      <div class="score-bar-wrap">
+        <div class="score-bar score-bar--dynamic"></div>
+        <span class="score-bar-label">{{ cbo.social_impact_score }}%</span>
+      </div>
+      {% if rationale %}
+        <p class="rationale-text">{{ rationale }}</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <!-- ── ACTIONS ─────────────────────────────────────────────── -->
+    <div class="profile-actions">
+      {% if own %}
+        <div class="kobo-connection-panel {% if cbo.has_kobo_connection %}kobo-connection-panel--connected{% else %}kobo-connection-panel--disconnected{% endif %}">
+          <div class="kobo-connection-copy">
+            <span class="kobo-connection-eyebrow">KoboToolbox API</span>
+            {% if cbo.has_kobo_connection %}
+              <strong>Connected</strong>
+              <p>Live sync is enabled for this CBO profile.</p>
+            {% else %}
+              <strong>Disconnected</strong>
+              <p>
+                Live Kobo sync has been terminated for this profile.
+                {% if cbo.kobo_disconnected_at %}
+                  Disconnected on {{ cbo.kobo_disconnected_at.strftime('%B %d, %Y at %H:%M UTC') }}.
+                {% endif %}
+              </p>
+            {% endif %}
+          </div>
+          {% if cbo.has_kobo_connection %}
+            <form method="POST" action="{{ url_for('main.disconnect_kobo', cbo_id=cbo.id) }}" onsubmit="return confirm('Terminate the KoboToolbox API connection for this CBO? Future syncs will stop until the connection is set up again.');">
+              <button type="submit" class="btn btn-danger">
+                <i class="fas fa-plug-circle-xmark"></i> Terminate API Connection
+              </button>
+            </form>
+          {% endif %}
+        </div>
+      {% endif %}
+      {% if own or current_user.role == 'funder' %}
+        <form method="POST" action="{{ url_for('main.sync_cbo', cbo_id=cbo.id) }}" class="sync-form">
+          <button type="submit" class="btn btn-primary btn-lg" id="syncBtn" {% if not cbo.has_kobo_connection %}disabled{% endif %}>
+            <i class="fas fa-sync-alt"></i> Sync with KoboToolbox &amp; Refresh AI Profile
+          </button>
+        </form>
+        {% if cbo.last_synced %}
+          <p class="last-sync">Last synced: {{ cbo.last_synced.strftime('%B %d, %Y at %H:%M UTC') }}</p>
+        {% endif %}
+        {% if not cbo.has_kobo_connection %}
+          <p class="last-sync">KoboToolbox sync is disabled for this CBO.</p>
+        {% endif %}
+      {% endif %}
+      <a href="{{ url_for('main.marketplace') if current_user.role == 'funder' else url_for('main.cbo_dashboard') }}" class="btn btn-outline">
+        <i class="fas fa-arrow-left"></i> Back
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Chart.js for growth visualization -->
+{% set growth_data = _safe_json_inline(cbo.growth_metrics_json) %}
+{% if growth_data and growth_data|length > 0 %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script id="growth-json" type="application/json">{{ growth_data|tojson }}</script>
+<script>
+// ── Raw monthly data ────────────────────────────────────────────
+const rawMonthly = JSON.parse(document.getElementById('growth-json').textContent);
+const chartLabels = JSON.parse(document.getElementById('chart-labels').textContent);
+const LABEL_RENTALS   = chartLabels.rentals;
+const LABEL_BORROWERS = chartLabels.borrowers;
+const LABEL_DURATION  = 'Avg ' + chartLabels.duration;
+
+// ── Aggregation ─────────────────────────────────────────────────
+function aggregate(period) {
+  if (period === 'monthly') return rawMonthly;
+  const keyFn = period === 'annually'
+    ? m => m.slice(0, 4)
+    : m => { const [y, mo] = m.split('-'); return `${y} Q${Math.ceil(+mo / 3)}`; };
+  const map = {};
+  rawMonthly.forEach(d => {
+    const k = keyFn(d.month);
+    if (!map[k]) map[k] = [];
+    map[k].push(d);
+  });
+  return Object.entries(map).sort(([a],[b]) => a.localeCompare(b)).map(([k, arr]) => ({
+    month:        k,
+    rentals:      arr.reduce((s,d) => s + (d.rentals||0), 0),
+    borrowers:    Math.round(arr.reduce((s,d) => s + (d.borrowers||0), 0) / arr.length),
+    revenue:      arr.reduce((s,d) => s + (d.revenue||0), 0),
+    avg_duration: +(arr.reduce((s,d) => s + (d.avg_duration||0), 0) / arr.length).toFixed(1)
+  }));
+}
+
+// ── Growth rate pills (per chart) ──────────────────────────────
+function growthRate(data, field, nMonths) {
+  if (data.length < nMonths + 1) return null;
+  const recent = data[data.length - 1][field] || 0;
+  const old    = data[data.length - 1 - nMonths][field] || 0;
+  if (!old) return null;
+  return ((recent - old) / old * 100).toFixed(1);
+}
+
+function renderPillsFor(elId, field, data) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const periods = [{ label:'3M', n:3 }, { label:'6M', n:6 }, { label:'1Y', n:12 }, { label:'2Y', n:24 }];
+  el.innerHTML = periods.map(({ label, n }) => {
+    const r = growthRate(data, field, n);
+    if (r === null) return '';
+    const up = parseFloat(r) >= 0;
+    return `<span class="growth-pill ${up ? 'growth-pill--up' : 'growth-pill--down'}">${label}: <strong>${up ? '+' : ''}${r}%</strong></span>`;
+  }).join('');
+}
+
+function renderAllPills(data) {
+  renderPillsFor('pillsRentals',   'rentals',      data);
+  renderPillsFor('pillsBorrowers', 'borrowers',    data);
+  renderPillsFor('pillsRevenue',   'revenue',      data);
+  renderPillsFor('pillsDuration',  'avg_duration', data);
+}
+
+// ── Chart factory ───────────────────────────────────────────────
+const baseOpts = {
+  responsive: true, maintainAspectRatio: true,
+  plugins: { legend: { display: false } },
+  scales: { y: { beginAtZero: true } }
+};
+
+function makeDataset(label, data, rgb) {
+  return { label, data, borderColor: `rgb(${rgb})`,
+    backgroundColor: `rgba(${rgb},0.1)`, tension: 0.4, fill: true, pointRadius: 3 };
+}
+
+function makeChart(id, label, field, rgb) {
+  const d = aggregate('monthly');
+  return new Chart(document.getElementById(id), {
+    type: 'line',
+    data: { labels: d.map(x => x.month), datasets: [makeDataset(label, d.map(x => x[field]), rgb)] },
+    options: baseOpts
+  });
+}
+
+const charts = {
+  rentals:   makeChart('rentalsChart',   LABEL_RENTALS,   'rentals',      '40,167,69'),
+  borrowers: makeChart('borrowersChart', LABEL_BORROWERS, 'borrowers',    '0,123,255'),
+  revenue:   makeChart('revenueChart',   'Revenue (KSh)', 'revenue',      '255,193,7'),
+  duration:  makeChart('durationChart',  LABEL_DURATION,  'avg_duration', '111,66,193')
+};
+
+renderAllPills(rawMonthly);
+
+// ── Period toggle ───────────────────────────────────────────────
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const d = aggregate(btn.dataset.period);
+    const labels = d.map(x => x.month);
+    [['rentals','rentals'],['borrowers','borrowers'],['revenue','revenue'],['duration','avg_duration']].forEach(([key,field]) => {
+      charts[key].data.labels = labels;
+      charts[key].data.datasets[0].data = d.map(x => x[field]);
+      charts[key].update();
+    });
+    // Pills always use raw monthly so rates reflect real compounding
+    renderAllPills(rawMonthly);
+  });
+});
+</script>
+{% endif %}
+
+<script>
+/* Set score bar width from data-score attribute on the section wrapper */
+document.querySelectorAll('.impact-rationale-section[data-score]').forEach(section => {
+  const bar = section.querySelector('.score-bar--dynamic');
+  if (bar) bar.style.width = section.dataset.score + '%';
+});
+
+const syncBtn = document.getElementById('syncBtn');
+if (syncBtn) {
+  syncBtn.closest('form').addEventListener('submit', () => {
+    syncBtn.disabled = true;
+    syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing…';
+  });
+}
+</script>
+{% endblock %}

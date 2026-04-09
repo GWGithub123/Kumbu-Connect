@@ -1,0 +1,165 @@
+"""
+Database models — Users, CBOs, and cached profile data.
+"""
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
+
+db = SQLAlchemy()
+
+
+class User(UserMixin, db.Model):
+    """Dual-role user: 'funder' or 'cbo'."""
+    __tablename__ = 'users'
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False)          # 'funder' | 'cbo'
+    display_name = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # If role == 'cbo', link to exactly one CBO profile
+    cbo_id = db.Column(db.Integer, db.ForeignKey('cbos.id'), nullable=True)
+    cbo = db.relationship('CBO', backref='users', foreign_keys=[cbo_id])
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+
+class CBO(db.Model):
+    """A Community-Based Organisation profile."""
+    __tablename__ = 'cbos'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    slug = db.Column(db.String(255), unique=True, nullable=False)
+
+    # KoboToolbox link
+    kobo_asset_id = db.Column(db.String(100), nullable=True)
+    kobo_connection_active = db.Column(db.Boolean, nullable=False, default=True)
+    kobo_disconnected_at = db.Column(db.DateTime, nullable=True)
+    cbo_identifier = db.Column(db.String(50), nullable=True)  # Identifier to filter KoboToolbox data
+    sms_keyword = db.Column(db.String(50), unique=True, nullable=True)
+    community_prompt = db.Column(db.Text, default='')
+    community_feedback_enabled = db.Column(db.Boolean, default=True)
+
+    # ── Identity & metadata ──
+    location = db.Column(db.String(255), default='')
+    street_address = db.Column(db.String(255), default='')
+    formatted_address = db.Column(db.String(255), default='')
+    latitude = db.Column(db.Float, nullable=True)
+    longitude = db.Column(db.Float, nullable=True)
+    geocode_query = db.Column(db.String(255), default='')
+    geocoded_at = db.Column(db.DateTime, nullable=True)
+    place_id = db.Column(db.String(255), default='')
+    county_region = db.Column(db.String(255), default='')
+    org_type = db.Column(db.String(255), default='Community-Based Organisation (CBO)')
+    founded_year = db.Column(db.String(10), default='')
+    focus_areas = db.Column(db.String(500), default='Rural livelihood, subsistence agriculture, youth')
+
+    # ── Leadership ──
+    chairperson = db.Column(db.String(255), default='')
+    program_director = db.Column(db.String(255), default='')
+    finance_lead = db.Column(db.String(255), default='')
+
+    # ── Quantified Social Impact (JSON blob) ──
+    impact_json = db.Column(db.Text, default='{}')
+
+    # ── Flagship project summary ──
+    flagship_summary = db.Column(db.Text, default='')
+
+    # ── Community success story ──
+    success_story = db.Column(db.Text, default='')
+
+    # ── Join Us / CTA ──
+    join_us_text = db.Column(db.Text, default='')
+
+    # ── Raw Kobo data cache ──
+    raw_kobo_json = db.Column(db.Text, default='[]')
+
+    # ── Full AI-generated profile (JSON) ──
+    ai_profile_json = db.Column(db.Text, default='{}')
+
+    # ── Growth Metrics (time-series JSON) ──
+    growth_metrics_json = db.Column(db.Text, default='[]')
+    # Format: [{"month": "2024-06", "rentals": 15, "borrowers": 8, "revenue": 350, ...}, ...]
+
+    # ── Classification, badges, scores ──
+    classifications_json = db.Column(db.Text, default='[]')   # e.g. ["education","healthcare"]
+    data_quality_badge   = db.Column(db.String(10), default='')  # "bronze"|"silver"|"gold"
+    social_impact_score  = db.Column(db.Integer, default=0)      # 0–100
+
+    # Timestamps
+    last_synced = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def has_kobo_connection(self) -> bool:
+        return bool(self.kobo_connection_active and self.kobo_asset_id)
+
+    def disconnect_kobo(self):
+        self.kobo_connection_active = False
+        self.kobo_disconnected_at = datetime.utcnow()
+        self.kobo_asset_id = None
+        self.raw_kobo_json = '[]'
+
+
+class CommunitySubscriber(db.Model):
+    """A community member who opts into SMS feedback for a CBO."""
+    __tablename__ = 'community_subscribers'
+    __table_args__ = (
+        db.UniqueConstraint('cbo_id', 'phone_number', name='uq_community_subscriber_cbo_phone'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    cbo_id = db.Column(db.Integer, db.ForeignKey('cbos.id'), nullable=False)
+    phone_number = db.Column(db.String(32), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='active')
+    signup_source = db.Column(db.String(20), nullable=False, default='sms')
+    signup_keyword = db.Column(db.String(50), default='')
+    consent_received_at = db.Column(db.DateTime, nullable=True)
+    last_response_at = db.Column(db.DateTime, nullable=True)
+    last_checkin_sent_at = db.Column(db.DateTime, nullable=True)
+    conversation_state = db.Column(db.String(32), nullable=False, default='idle')
+    active_feedback_id = db.Column(db.Integer, db.ForeignKey('community_feedback.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    cbo = db.relationship('CBO', backref=db.backref('community_subscribers', lazy=True))
+    active_feedback = db.relationship('CommunityFeedback', foreign_keys=[active_feedback_id], post_update=True)
+
+
+class CommunityFeedback(db.Model):
+    """A structured SMS feedback response captured from a community member."""
+    __tablename__ = 'community_feedback'
+
+    id = db.Column(db.Integer, primary_key=True)
+    subscriber_id = db.Column(db.Integer, db.ForeignKey('community_subscribers.id'), nullable=False)
+    cbo_id = db.Column(db.Integer, db.ForeignKey('cbos.id'), nullable=False)
+    cycle_type = db.Column(db.String(20), nullable=False, default='onboarding')
+    delivery_channel = db.Column(db.String(20), nullable=False, default='sms')
+    questionnaire_version = db.Column(db.String(20), nullable=False, default='v1')
+    status = db.Column(db.String(20), nullable=False, default='in_progress')
+    rating = db.Column(db.Integer, nullable=True)
+    help_count = db.Column(db.Integer, nullable=True)
+    anecdote = db.Column(db.Text, default='')
+    raw_transcript = db.Column(db.Text, default='[]')
+    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    follow_up_due_at = db.Column(db.DateTime, nullable=True)
+    firestore_synced_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    subscriber = db.relationship(
+        'CommunitySubscriber',
+        foreign_keys=[subscriber_id],
+        backref=db.backref('feedback_entries', lazy=True),
+    )
+    cbo = db.relationship('CBO', backref=db.backref('community_feedback_entries', lazy=True))

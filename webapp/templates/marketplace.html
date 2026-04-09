@@ -1,0 +1,839 @@
+{% extends "base.html" %}
+{% block title %}CBO Marketplace — Kumbu Connect{% endblock %}
+
+{% block content %}
+{% macro render_cbo_card(item, ai_search_active) %}
+  {% set cbo = item.cbo %}
+  {% set p = item.profile %}
+  {% set badge = item.badge or 'bronze' %}
+  {% set classes = item.classifications or [] %}
+  {% set feedback = item.community_feedback or {} %}
+  {% set score = item.score or 0 %}
+  {% set total_rev = item.total_revenue %}
+  {% set rev_growth = item.revenue_growth %}
+  {% set ai_match = item.ai_match or {} %}
+
+  <a href="{{ url_for('main.cbo_profile', slug=cbo.slug) }}" class="cbo-card-link">
+    <div class="cbo-card">
+      <div class="card-header-bar">
+        <div class="card-title-row">
+          <h2>{{ p.get('name', cbo.name) }}</h2>
+          <span class="data-badge data-badge--{{ badge }} data-badge--sm">
+            {% if badge == 'gold' %}🥇{% elif badge == 'silver' %}🥈{% else %}🥉{% endif %}
+            Data Quality: {{ badge | title }}
+          </span>
+        </div>
+        {% if p.get('tagline') %}
+          <p class="tagline">{{ p.tagline }}</p>
+        {% endif %}
+        {% if classes %}
+        <div class="card-classifications">
+          {% for cls in classes %}
+            <span class="classification-tag classification-tag--{{ cls }}">{{ cls | title }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+
+      {% if score %}
+      <div class="card-score-row">
+        <span class="score-label"><i class="fas fa-star"></i> Social Impact</span>
+        <div class="score-bar-mini-wrap">
+          <div class="score-bar-mini" data-score="{{ score }}"></div>
+        </div>
+        <span class="score-num">{{ score }}/100</span>
+      </div>
+      {% endif %}
+
+      {% if ai_search_active and ai_match %}
+      <div class="card-ai-match">
+        <div class="card-ai-match__header">
+          <span><i class="fas fa-bullseye"></i> AI Match</span>
+          <strong>{{ ai_match.get('score', 0) }}/100</strong>
+        </div>
+        {% if ai_match.get('reasons') %}
+        <ul class="card-ai-match__reasons">
+          {% for reason in ai_match.get('reasons') %}
+            <li>{{ reason }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        {% if ai_match.get('qualitative_rationale') %}
+          <p class="card-ai-match__note">{{ ai_match.get('qualitative_rationale') }}</p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <div class="card-meta">
+        <span><i class="fas fa-map-marker-alt"></i> {{ p.get('location', cbo.location) or 'Location TBD' }}</span>
+        <span><i class="fas fa-calendar"></i> Est. {{ p.get('founded_year', cbo.founded_year) or '—' }}</span>
+        {% if total_rev %}
+          <span><i class="fas fa-coins"></i> KSh {{ "{:,.0f}".format(total_rev) }}</span>
+        {% endif %}
+        {% if rev_growth is not none %}
+          <span class="{% if rev_growth >= 0 %}growth-up{% else %}growth-down{% endif %}">
+            <i class="fas fa-{% if rev_growth >= 0 %}arrow-up{% else %}arrow-down{% endif %}"></i>
+            {{ "%.1f"|format(rev_growth|abs) }}% rev Q/Q
+          </span>
+        {% endif %}
+      </div>
+
+      <div class="card-impacts">
+        {% for impact in (p.get('quantified_impact', []))[:3] %}
+          <div class="impact-chip">
+            <i class="fas fa-{{ _icon(impact.get('icon_hint','chart-up')) }}"></i>
+            <strong>{{ impact.metric_value }}</strong>
+            <span>{{ impact.metric_unit }}</span>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="card-community-feedback">
+        <div class="card-community-feedback__header">
+          <span class="card-community-feedback__title"><i class="fas fa-comments"></i> Community Feedback</span>
+          {% if feedback.get('avg_rating') is not none %}
+            <span class="card-community-feedback__rating">{{ feedback.get('avg_rating') }}/10</span>
+          {% else %}
+            <span class="card-community-feedback__rating card-community-feedback__rating--empty">No ratings yet</span>
+          {% endif %}
+        </div>
+        <div class="card-community-feedback__stats">
+          <span>{{ feedback.get('responses', 0) }} response{{ 's' if feedback.get('responses', 0) != 1 else '' }}</span>
+          <span>{{ feedback.get('subscribers', 0) }} subscriber{{ 's' if feedback.get('subscribers', 0) != 1 else '' }}</span>
+        </div>
+        {% if feedback.get('recent_quotes') %}
+          {% set recent_quote = feedback.get('recent_quotes')[0] %}
+          <p class="card-community-feedback__quote">"{{ recent_quote.get('quote') }}"</p>
+        {% else %}
+          <p class="card-community-feedback__quote card-community-feedback__quote--empty">This CBO has not received community feedback yet.</p>
+        {% endif %}
+      </div>
+
+      <div class="card-footer">
+        {% if cbo.last_synced %}
+          <span class="sync-badge"><i class="fas fa-sync-alt"></i> Synced {{ cbo.last_synced.strftime('%b %d') }}</span>
+        {% else %}
+          <span class="sync-badge pending"><i class="fas fa-clock"></i> Not yet synced</span>
+        {% endif %}
+        <span class="view-link">View Profile <i class="fas fa-arrow-right"></i></span>
+      </div>
+    </div>
+  </a>
+{% endmacro %}
+
+<div class="container">
+  <div class="marketplace-header">
+    <h1><i class="fas fa-store"></i> CBO Marketplace</h1>
+    <p>Browse community organisations, review their live operational data, and discover social-impact investment opportunities.</p>
+  </div>
+
+  <section class="marketplace-map-card marketplace-map-card--streamlined">
+    <form method="GET" action="{{ url_for('main.marketplace') }}" class="marketplace-search-panel" id="filterForm">
+      <div class="marketplace-search-row">
+        <div class="marketplace-search-field">
+          <input type="text" id="q" name="q" class="marketplace-search-input" placeholder="Describe the CBO you want in plain language…" value="{{ q }}">
+        </div>
+        <div class="marketplace-search-actions">
+          <button type="submit" class="btn btn-primary"><i class="fas fa-filter"></i> Search</button>
+          <button type="button" class="btn btn-outline" id="toggleFilters" aria-expanded="false" aria-controls="secondaryFilters">
+            <i class="fas fa-sliders-h"></i> Filters
+          </button>
+          <a href="{{ url_for('main.marketplace') }}" class="btn btn-outline">Clear</a>
+        </div>
+      </div>
+
+      <div class="filter-drawer-panel" id="secondaryFilters" hidden>
+        <div class="filter-drawer-grid">
+          <div class="filter-group">
+            <label for="classification"><i class="fas fa-tag"></i> Classification</label>
+            <select id="classification" name="classification">
+              <option value="">All Types</option>
+              {% for cls in ['tools','education','healthcare','agriculture','water','livelihood','environment','community'] %}
+                <option value="{{ cls }}" {% if f_class == cls %}selected{% endif %}>{{ cls | title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label for="badge"><i class="fas fa-medal"></i> Data Quality</label>
+            <select id="badge" name="badge">
+              <option value="">All Badges</option>
+              <option value="gold" {% if f_badge == 'gold' %}selected{% endif %}>🥇 Gold</option>
+              <option value="silver" {% if f_badge == 'silver' %}selected{% endif %}>🥈 Silver</option>
+              <option value="bronze" {% if f_badge == 'bronze' %}selected{% endif %}>🥉 Bronze</option>
+            </select>
+          </div>
+
+          <div class="filter-group filter-group--range">
+            <label><i class="fas fa-star"></i> Impact Score</label>
+            <div class="range-inputs">
+              <input type="number" name="min_score" placeholder="Min" min="0" max="100" value="{{ min_score_display }}" class="range-num">
+              <span>–</span>
+              <input type="number" name="max_score" placeholder="Max" min="0" max="100" value="{{ max_score_display }}" class="range-num">
+            </div>
+          </div>
+
+          <div class="filter-group filter-group--range">
+            <label><i class="fas fa-coins"></i> Min Revenue (KSh)</label>
+            <input type="number" name="min_revenue" placeholder="e.g. 100000" min="0" value="{{ min_revenue_display }}" class="range-num">
+          </div>
+
+          <div class="filter-group filter-group--range">
+            <label><i class="fas fa-comments"></i> Min Community Rating</label>
+            <input type="number" name="min_rating" placeholder="e.g. 7" min="0" max="10" step="0.1" value="{{ min_rating_display }}" class="range-num">
+          </div>
+
+          <div class="filter-group">
+            <label for="sort"><i class="fas fa-sort"></i> Sort By</label>
+            <select id="sort" name="sort">
+              <option value="name" {% if f_sort == 'name' %}selected{% endif %}>Name A–Z</option>
+              <option value="score_desc" {% if f_sort == 'score_desc' %}selected{% endif %}>Impact Score ↓</option>
+              <option value="revenue_desc" {% if f_sort == 'revenue_desc' %}selected{% endif %}>Revenue ↓</option>
+              <option value="growth_desc" {% if f_sort == 'growth_desc' %}selected{% endif %}>Growth Rate ↓</option>
+              <option value="badge" {% if f_sort == 'badge' %}selected{% endif %}>Data Quality</option>
+              <option value="ai_match" {% if f_sort == 'ai_match' %}selected{% endif %}>Gemini AI Best Match</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </form>
+
+    <div class="marketplace-map-stage">
+      {% if google_maps_api_key %}
+        <div class="marketplace-map-toolbar">
+          <span class="marketplace-map-pill">{{ map_pins | length }} pinned</span>
+          <div class="marketplace-map-card__controls" aria-label="Map display controls">
+            <button type="button" class="map-view-toggle is-active" data-map-view="terrain">Terrain</button>
+            <button type="button" class="map-view-toggle" data-map-view="satellite">Satellite</button>
+          </div>
+        </div>
+        <div class="marketplace-map-loading-frame" aria-hidden="true"></div>
+        <div class="marketplace-map-overlays" id="marketplaceMapOverlays" aria-hidden="true"></div>
+        <div id="marketplaceMap" class="marketplace-map-canvas marketplace-map-canvas--full"></div>
+      {% else %}
+        <div class="marketplace-map-empty">
+          <i class="fas fa-map-marked-alt"></i>
+          <h3>Google Maps key missing</h3>
+          <p>Add <strong>Google_Maps_API_Key</strong> to the environment to render the map here.</p>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if ai_search_active and cbo_profiles %}
+  {% set top_result_entries = cbo_profiles[:4] %}
+  <section class="top-results-strip" aria-label="Top Gemini results">
+    <div class="top-results-strip__header">
+      <span class="top-results-strip__eyebrow">Top Results</span>
+      <p>Gemini’s strongest matches for your current search, with a fuller explanation of why each one surfaced.</p>
+    </div>
+    <div class="top-results-strip__list">
+      {% for item in top_result_entries[:4] %}
+        {% set match = item.ai_match or {} %}
+        <a href="{{ url_for('main.cbo_profile', slug=item.cbo.slug) }}" class="top-results-card">
+          <span class="top-results-card__score">{{ match.get('score', item.score or 0) }}/100</span>
+          <strong>{{ item.profile.get('name', item.cbo.name) }}</strong>
+          <span class="top-results-card__meta">{{ item.profile.get('location', item.cbo.location) or 'Location TBD' }}</span>
+          {% if item.get('detailed_ai_overview') %}
+          <div class="top-results-card__analysis-block">
+            <span class="top-results-card__analysis-label">Overview</span>
+            <p class="top-results-card__analysis-copy">{{ item.get('detailed_ai_overview') }}</p>
+          </div>
+          {% endif %}
+          <span class="top-results-card__button">View Profile <i class="fas fa-arrow-right"></i></span>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if ai_search_active and ai_search %}
+  <div class="results-bar results-bar--ai">
+    <span>{{ cbo_profiles | length }} organisation{{ 's' if cbo_profiles | length != 1 else '' }} found, ranked by Gemini AI fit</span>
+  </div>
+  {% elif cbo_profiles is defined %}
+  <div class="results-bar">
+    <span>{{ cbo_profiles | length }} organisation{{ 's' if cbo_profiles | length != 1 else '' }} found</span>
+  </div>
+  {% endif %}
+
+  <div class="marketplace-section-divider" aria-label="All CBOs section">
+    <span>All CBOs</span>
+  </div>
+
+  {% if not cbo_profiles %}
+    <div class="empty-state">
+      <i class="fas fa-seedling"></i>
+      <h2>No organisations found</h2>
+      <p>Try adjusting your filters, or wait for CBOs to sync their data.</p>
+      <a href="{{ url_for('main.marketplace') }}" class="btn btn-outline">Clear Filters</a>
+    </div>
+  {% else %}
+    {% if ai_search_active and ai_match_groups %}
+    <div class="ai-match-groups">
+      {% for group in ai_match_groups %}
+      <section class="ai-match-group ai-match-group--{{ group.key }}">
+        <div class="ai-match-group__header">
+          <div>
+            <h2>{{ group.title }}</h2>
+            <p>{{ group.description }}</p>
+          </div>
+          <span class="ai-match-group__count">{{ group.entries | length }}</span>
+        </div>
+        <div class="ai-match-group__divider"></div>
+        <div class="cbo-grid">
+          {% for item in group.entries %}
+            {{ render_cbo_card(item, ai_search_active) }}
+          {% endfor %}
+        </div>
+      </section>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="cbo-grid">
+      {% for item in cbo_profiles %}
+        {{ render_cbo_card(item, ai_search_active) }}
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endif %}
+</div>
+
+<div class="map-modal" id="cboMapModal" hidden>
+  <div class="map-modal__backdrop" data-close-map-modal></div>
+  <div class="map-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="cboMapModalTitle">
+    <button type="button" class="map-modal__close" data-close-map-modal aria-label="Close CBO profile preview">
+      <i class="fas fa-times"></i>
+    </button>
+    <div class="map-modal__header">
+      <span class="map-modal__eyebrow">Map Pin Preview</span>
+      <h2 id="cboMapModalTitle">CBO Profile</h2>
+      <p id="cboMapModalSubtitle"></p>
+    </div>
+    <div class="map-modal__body" id="cboMapModalBody"></div>
+  </div>
+</div>
+
+<script id="marketplace-map-data" type="application/json">{{ {'pins': map_pins, 'apiKey': google_maps_api_key, 'aiSearchActive': ai_search_active} | tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const mapDataNode = document.getElementById('marketplace-map-data');
+const mapData = mapDataNode ? JSON.parse(mapDataNode.textContent || '{}') : {};
+const mapPins = Array.isArray(mapData.pins) ? mapData.pins : [];
+const mapsApiKey = mapData.apiKey || '';
+const mapModal = document.getElementById('cboMapModal');
+const mapModalTitle = document.getElementById('cboMapModalTitle');
+const mapModalSubtitle = document.getElementById('cboMapModalSubtitle');
+const mapModalBody = document.getElementById('cboMapModalBody');
+const mapOverlayRoot = document.getElementById('marketplaceMapOverlays');
+const mapViewToggles = Array.from(document.querySelectorAll('[data-map-view]'));
+const filterToggle = document.getElementById('toggleFilters');
+const secondaryFilters = document.getElementById('secondaryFilters');
+const aiSearchActive = Boolean(mapData.aiSearchActive);
+let marketplaceMapInstance = null;
+let mapMarkers = [];
+let analysisCards = [];
+let hoverInfoWindow = null;
+let hoverCloseTimeout = null;
+
+if (filterToggle && secondaryFilters) {
+  filterToggle.addEventListener('click', () => {
+    const nextExpanded = filterToggle.getAttribute('aria-expanded') !== 'true';
+    filterToggle.setAttribute('aria-expanded', String(nextExpanded));
+    secondaryFilters.hidden = !nextExpanded;
+  });
+}
+
+document.querySelectorAll('.score-bar-mini[data-score]').forEach(el => {
+  el.style.width = el.dataset.score + '%';
+});
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderChipList(values, className) {
+  if (!values || !values.length) {
+    return '';
+  }
+  return `<div class="${className}">${values.map(value => `<span>${escapeHtml(value)}</span>`).join('')}</div>`;
+}
+
+function closeHoverInfoWindow() {
+  if (hoverCloseTimeout) {
+    window.clearTimeout(hoverCloseTimeout);
+    hoverCloseTimeout = null;
+  }
+  if (hoverInfoWindow) {
+    hoverInfoWindow.close();
+  }
+}
+
+function scheduleHoverInfoWindowClose() {
+  if (hoverCloseTimeout) {
+    window.clearTimeout(hoverCloseTimeout);
+  }
+  hoverCloseTimeout = window.setTimeout(() => {
+    if (hoverInfoWindow) {
+      hoverInfoWindow.close();
+    }
+  }, 180);
+}
+
+function buildHoverInfoWindowContent(pin) {
+  const primaryScore = aiSearchActive && pin.ai_score
+    ? `${pin.ai_score}/100 AI match`
+    : `${pin.score || 0}/100 impact score`;
+  const ratingText = pin.avg_rating !== null && pin.avg_rating !== undefined
+    ? `${pin.avg_rating}/10 community rating`
+    : `${pin.responses || 0} feedback responses`;
+  const revenueText = pin.total_revenue
+    ? `KSh ${Number(pin.total_revenue).toLocaleString()} revenue`
+    : 'Revenue not available';
+  const overview = pin.ai_overview || pin.tagline || 'This organisation appears in the current marketplace results.';
+
+  return `
+    <article class="map-hover-card">
+      <div class="map-hover-card__eyebrow">${escapeHtml(primaryScore)}</div>
+      <h4 class="map-hover-card__title">${escapeHtml(pin.name)}</h4>
+      <p class="map-hover-card__location">${escapeHtml(pin.formatted_address || pin.location || 'Location TBD')}</p>
+      <p class="map-hover-card__overview">${escapeHtml(overview)}</p>
+      <div class="map-hover-card__meta">
+        <span>${escapeHtml(ratingText)}</span>
+        <span>${escapeHtml(revenueText)}</span>
+      </div>
+      ${renderChipList((pin.focus_areas || []).slice(0, 3), 'map-hover-card__chips')}
+    </article>
+  `;
+}
+
+function openHoverInfoWindow(pin, marker) {
+  if (!hoverInfoWindow || !marker) {
+    return;
+  }
+  if (hoverCloseTimeout) {
+    window.clearTimeout(hoverCloseTimeout);
+    hoverCloseTimeout = null;
+  }
+  hoverInfoWindow.setContent(buildHoverInfoWindowContent(pin));
+  hoverInfoWindow.open({
+    anchor: marker,
+    map: marketplaceMapInstance,
+    shouldFocus: false,
+  });
+}
+
+function openCboMapModal(pin) {
+  if (!mapModal || !mapModalBody) {
+    return;
+  }
+
+  const ratingText = pin.avg_rating !== null && pin.avg_rating !== undefined
+    ? `${pin.avg_rating}/10`
+    : 'No ratings yet';
+  const revenueText = pin.total_revenue
+    ? `KSh ${Number(pin.total_revenue).toLocaleString()}`
+    : 'Revenue not available';
+  const aiReasons = pin.ai_reasons && pin.ai_reasons.length
+    ? `<ul class="map-modal__reason-list">${pin.ai_reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>`
+    : '<p class="map-modal__empty-copy">No AI explanation is available for this result yet.</p>';
+  const impactHighlights = pin.impact_highlights && pin.impact_highlights.length
+    ? `<div class="map-modal__impact-list">${pin.impact_highlights.map(value => `<span>${escapeHtml(value)}</span>`).join('')}</div>`
+    : '';
+
+  mapModalTitle.textContent = pin.name || 'CBO Profile';
+  mapModalSubtitle.textContent = pin.formatted_address || pin.location || '';
+  mapModalBody.innerHTML = `
+    <div class="map-modal__stats">
+      <div>
+        <strong>${escapeHtml(String(pin.score || 0))}/100</strong>
+        <span>Impact Score</span>
+      </div>
+      <div>
+        <strong>${escapeHtml(ratingText)}</strong>
+        <span>Community Rating</span>
+      </div>
+      <div>
+        <strong>${escapeHtml(revenueText)}</strong>
+        <span>Total Revenue</span>
+      </div>
+    </div>
+
+    ${pin.tagline ? `<p class="map-modal__tagline">${escapeHtml(pin.tagline)}</p>` : ''}
+
+    <section class="map-modal__section">
+      <h3>Overview</h3>
+      <p>${escapeHtml(pin.ai_overview || 'This organisation appears in the current marketplace results.')}</p>
+      ${aiReasons}
+    </section>
+
+    <section class="map-modal__section">
+      <h3>CBO Snapshot</h3>
+      ${renderChipList(pin.classifications || [], 'map-modal__chip-list map-modal__chip-list--classification')}
+      ${renderChipList(pin.focus_areas || [], 'map-modal__chip-list')}
+      ${impactHighlights}
+      <div class="map-modal__meta-row">
+        <span><i class="fas fa-map-marker-alt"></i> ${escapeHtml(pin.location || 'Location TBD')}</span>
+        <span><i class="fas fa-comments"></i> ${escapeHtml(String(pin.responses || 0))} response${pin.responses === 1 ? '' : 's'}</span>
+      </div>
+    </section>
+
+    <div class="map-modal__actions">
+      <a href="${escapeHtml(pin.profile_url)}" class="btn btn-primary">Open Full Profile</a>
+    </div>
+  `;
+
+  mapModal.hidden = false;
+  document.body.classList.add('modal-open');
+}
+
+function closeCboMapModal() {
+  if (!mapModal) {
+    return;
+  }
+  mapModal.hidden = true;
+  document.body.classList.remove('modal-open');
+}
+
+document.querySelectorAll('[data-close-map-modal]').forEach(button => {
+  button.addEventListener('click', closeCboMapModal);
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && mapModal && !mapModal.hidden) {
+    closeCboMapModal();
+  }
+  if (event.key === 'Escape' && filterToggle && secondaryFilters && !secondaryFilters.hidden) {
+    filterToggle.setAttribute('aria-expanded', 'false');
+    secondaryFilters.hidden = true;
+  }
+});
+
+function markerColor(pin) {
+  if ((pin.ai_score || 0) >= 70) {
+    return '#0f766e';
+  }
+  if ((pin.ai_score || 0) >= 40) {
+    return '#d97706';
+  }
+  return '#155e75';
+}
+
+function markerScale(pin, isActive = false) {
+  if (isActive) {
+    return 13;
+  }
+  if ((pin.ai_score || 0) >= 70) {
+    return 11;
+  }
+  return 9;
+}
+
+function clearAnalysisCards() {
+  analysisCards.forEach(card => card.remove());
+  analysisCards = [];
+}
+
+function chooseAnalysisCardPlacement(pointX, pointY, cardWidth, cardHeight, overlayWidth, overlayHeight) {
+  const gap = 20;
+  const margin = 12;
+  const placements = [
+    {
+      anchor: 'right',
+      x: pointX + gap,
+      y: pointY - (cardHeight / 2),
+      fits: pointX + gap + cardWidth <= overlayWidth - margin,
+    },
+    {
+      anchor: 'left',
+      x: pointX - gap - cardWidth,
+      y: pointY - (cardHeight / 2),
+      fits: pointX - gap - cardWidth >= margin,
+    },
+    {
+      anchor: 'top',
+      x: pointX - (cardWidth / 2),
+      y: pointY - gap - cardHeight,
+      fits: pointY - gap - cardHeight >= margin,
+    },
+    {
+      anchor: 'bottom',
+      x: pointX - (cardWidth / 2),
+      y: pointY + gap,
+      fits: pointY + gap + cardHeight <= overlayHeight - margin,
+    },
+  ];
+
+  const selected = placements.find(option => option.fits) || placements[0];
+  return {
+    anchor: selected.anchor,
+    x: Math.min(Math.max(selected.x, margin), Math.max(margin, overlayWidth - cardWidth - margin)),
+    y: Math.min(Math.max(selected.y, margin), Math.max(margin, overlayHeight - cardHeight - margin)),
+  };
+}
+
+function updateAnalysisCardPositions() {
+  if (!marketplaceMapInstance || !analysisCards.length || !window.google || !window.google.maps) {
+    return;
+  }
+  const projection = marketplaceMapInstance.getProjection();
+  if (!projection) {
+    return;
+  }
+  const bounds = marketplaceMapInstance.getBounds();
+  if (!bounds) {
+    return;
+  }
+
+  const northEast = projection.fromLatLngToPoint(bounds.getNorthEast());
+  const southWest = projection.fromLatLngToPoint(bounds.getSouthWest());
+  const zoom = marketplaceMapInstance.getZoom();
+  const scale = Math.pow(2, zoom);
+  const overlayWidth = mapOverlayRoot ? mapOverlayRoot.clientWidth : 0;
+  const overlayHeight = mapOverlayRoot ? mapOverlayRoot.clientHeight : 0;
+
+  analysisCards.forEach(item => {
+    const point = projection.fromLatLngToPoint(item.marker.getPosition());
+    const x = (point.x - southWest.x) * scale;
+    const y = (point.y - northEast.y) * scale;
+    const cardWidth = item.element.offsetWidth || 190;
+    const cardHeight = item.element.offsetHeight || 64;
+    const placement = chooseAnalysisCardPlacement(x, y, cardWidth, cardHeight, overlayWidth, overlayHeight);
+    item.element.className = `map-analysis-card map-analysis-card--${placement.anchor}`;
+    item.element.style.transform = `translate(${placement.x}px, ${placement.y}px)`;
+  });
+}
+
+function buildAnalysisCard(pin, marker) {
+  if (!mapOverlayRoot) {
+    return;
+  }
+
+  const element = document.createElement('div');
+  element.className = 'map-analysis-card map-analysis-card--right';
+  element.innerHTML = `
+    <button type="button" class="map-analysis-card__body" aria-label="Open ${escapeHtml(pin.name)} profile preview">
+      <strong>${escapeHtml(pin.name)}</strong>
+    </button>
+    <a class="map-analysis-card__expand" href="${escapeHtml(pin.profile_url)}" aria-label="Open full profile for ${escapeHtml(pin.name)}">
+      <i class="fas fa-expand-alt"></i>
+    </a>
+  `;
+
+  element.querySelector('.map-analysis-card__body').addEventListener('click', () => {
+    window.location.href = pin.profile_url;
+  });
+  mapOverlayRoot.appendChild(element);
+  analysisCards.push({
+    element,
+    marker,
+  });
+}
+
+function resetMarkerStates() {
+  mapMarkers.forEach(item => {
+    item.marker.setAnimation(null);
+    item.marker.setIcon({
+      path: google.maps.SymbolPath.CIRCLE,
+      fillColor: markerColor(item.pin),
+      fillOpacity: 1,
+      strokeColor: '#ffffff',
+      strokeWeight: 2,
+      scale: markerScale(item.pin),
+    });
+  });
+}
+
+async function runGeminiMapAnalysis() {
+  if (!aiSearchActive || !marketplaceMapInstance || mapMarkers.length === 0 || !mapOverlayRoot) {
+    return;
+  }
+
+  clearAnalysisCards();
+  const mapStage = document.querySelector('.marketplace-map-stage');
+  if (!mapStage) {
+    return;
+  }
+
+  mapStage.classList.add('is-analyzing');
+  resetMarkerStates();
+
+  const rankedMarkers = [...mapMarkers].sort((left, right) => (right.pin.ai_score || 0) - (left.pin.ai_score || 0));
+  for (const item of rankedMarkers) {
+    item.marker.setAnimation(google.maps.Animation.BOUNCE);
+    item.marker.setIcon({
+      path: google.maps.SymbolPath.CIRCLE,
+      fillColor: '#06b6d4',
+      fillOpacity: 1,
+      strokeColor: '#ffffff',
+      strokeWeight: 2,
+      scale: 15,
+    });
+    await new Promise(resolve => setTimeout(resolve, 260));
+    item.marker.setAnimation(null);
+    item.marker.setIcon({
+      path: google.maps.SymbolPath.CIRCLE,
+      fillColor: markerColor(item.pin),
+      fillOpacity: 1,
+      strokeColor: '#ffffff',
+      strokeWeight: 2,
+      scale: markerScale(item.pin),
+    });
+  }
+
+  const shortlisted = rankedMarkers.slice(0, Math.min(6, rankedMarkers.length));
+  if (shortlisted.length) {
+    const bounds = new google.maps.LatLngBounds();
+    shortlisted.forEach(item => bounds.extend(item.marker.getPosition()));
+    if (shortlisted.length === 1) {
+      marketplaceMapInstance.panTo(shortlisted[0].marker.getPosition());
+      marketplaceMapInstance.setZoom(12);
+    } else {
+      marketplaceMapInstance.fitBounds(bounds, 110);
+      await new Promise(resolve => {
+        google.maps.event.addListenerOnce(marketplaceMapInstance, 'idle', resolve);
+      });
+      marketplaceMapInstance.setZoom(Math.min(13, Math.max(11, marketplaceMapInstance.getZoom() + 1)));
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 260));
+    shortlisted.forEach(item => {
+      item.marker.setIcon({
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: '#14b8a6',
+        fillOpacity: 1,
+        strokeColor: '#ffffff',
+        strokeWeight: 2,
+        scale: 14,
+      });
+      buildAnalysisCard(item.pin, item.marker);
+    });
+    updateAnalysisCardPositions();
+  }
+
+  mapStage.classList.remove('is-analyzing');
+}
+
+function setMapView(mode) {
+  mapViewToggles.forEach(button => {
+    button.classList.toggle('is-active', button.dataset.mapView === mode);
+  });
+
+  if (!marketplaceMapInstance) {
+    return;
+  }
+
+  if (mode === 'satellite') {
+    marketplaceMapInstance.setMapTypeId('satellite');
+    return;
+  }
+
+  marketplaceMapInstance.setMapTypeId('terrain');
+}
+
+mapViewToggles.forEach(button => {
+  button.addEventListener('click', () => setMapView(button.dataset.mapView || 'terrain'));
+});
+
+function initMarketplaceMap() {
+  const mapElement = document.getElementById('marketplaceMap');
+  if (!mapElement || !window.google || !window.google.maps) {
+    return;
+  }
+
+  const kenyaCenter = { lat: 0.0236, lng: 37.9062 };
+  const map = new google.maps.Map(mapElement, {
+    center: kenyaCenter,
+    zoom: 6,
+    mapTypeId: 'terrain',
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: false,
+    clickableIcons: false,
+  });
+  marketplaceMapInstance = map;
+  hoverInfoWindow = new google.maps.InfoWindow({
+    disableAutoPan: true,
+    maxWidth: 320,
+    pixelOffset: new google.maps.Size(0, -10),
+  });
+  setMapView('terrain');
+  map.addListener('idle', updateAnalysisCardPositions);
+  map.addListener('dragstart', closeHoverInfoWindow);
+  map.addListener('zoom_changed', closeHoverInfoWindow);
+  map.addListener('click', closeHoverInfoWindow);
+
+  if (!mapPins.length) {
+    return;
+  }
+
+  const bounds = new google.maps.LatLngBounds();
+  mapMarkers = [];
+  mapPins.forEach(pin => {
+    const position = { lat: Number(pin.latitude), lng: Number(pin.longitude) };
+    const marker = new google.maps.Marker({
+      position,
+      map,
+      title: pin.name,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: markerColor(pin),
+        fillOpacity: 1,
+        strokeColor: '#ffffff',
+        strokeWeight: 2,
+        scale: markerScale(pin),
+      },
+    });
+    marker.addListener('mouseover', () => openHoverInfoWindow(pin, marker));
+    marker.addListener('mouseout', scheduleHoverInfoWindowClose);
+    marker.addListener('click', () => {
+      closeHoverInfoWindow();
+      openCboMapModal(pin);
+    });
+    mapMarkers.push({ pin, marker });
+    bounds.extend(position);
+  });
+
+  if (mapPins.length === 1) {
+    map.setCenter(bounds.getCenter());
+    map.setZoom(8);
+    return;
+  }
+
+  map.fitBounds(bounds, 64);
+
+  if (aiSearchActive) {
+    window.setTimeout(() => {
+      runGeminiMapAnalysis();
+    }, 350);
+  }
+}
+
+function loadGoogleMaps() {
+  if (!mapsApiKey || !document.getElementById('marketplaceMap')) {
+    return;
+  }
+
+  if (window.google && window.google.maps) {
+    initMarketplaceMap();
+    return;
+  }
+
+  window.initMarketplaceMap = initMarketplaceMap;
+  const script = document.createElement('script');
+  script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(mapsApiKey)}&callback=initMarketplaceMap&v=weekly`;
+  script.async = true;
+  script.defer = true;
+  document.head.appendChild(script);
+}
+
+loadGoogleMaps();
+</script>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Login — Kumbu Connect{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-header">
+      <i class="fas fa-handshake auth-logo"></i>
+      <h1>Kumbu Connect</h1>
+      <p class="auth-subtitle">Connecting Funders &amp; Community Organisations</p>
+    </div>
+
+    <!-- Role toggle -->
+    <div class="role-toggle" id="roleToggle">
+      <button class="role-btn active" data-role="funder" type="button">
+        <i class="fas fa-briefcase"></i> Funder
+      </button>
+      <button class="role-btn" data-role="cbo" type="button">
+        <i class="fas fa-people-group"></i> CBO
+      </button>
+    </div>
+
+    <form method="POST" action="{{ url_for('auth.login') }}">
+      <input type="hidden" name="role" id="roleInput" value="funder">
+
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="you@example.com">
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" placeholder="••••••••">
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block">
+        <i class="fas fa-sign-in-alt"></i> Log In
+      </button>
+    </form>
+
+    <p class="auth-footer-text">
+      Don't have an account? <a href="{{ url_for('auth.register') }}">Register here</a>
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.role-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('roleInput').value = btn.dataset.role;
+  });
+});
+</script>
+{% endblock %}

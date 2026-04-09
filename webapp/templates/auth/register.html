@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Register — Kumbu Connect{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-header">
+      <i class="fas fa-handshake auth-logo"></i>
+      <h1>Create Account</h1>
+      <p class="auth-subtitle">Join the Kumbu Connect platform</p>
+    </div>
+
+    <!-- Role toggle -->
+    <div class="role-toggle" id="roleToggle">
+      <button class="role-btn active" data-role="funder" type="button">
+        <i class="fas fa-briefcase"></i> Funder
+      </button>
+      <button class="role-btn" data-role="cbo" type="button">
+        <i class="fas fa-people-group"></i> CBO
+      </button>
+    </div>
+
+    <form method="POST" action="{{ url_for('auth.register') }}">
+      <input type="hidden" name="role" id="roleInput" value="funder">
+
+      <div class="form-group">
+        <label for="display_name">Full Name</label>
+        <input type="text" id="display_name" name="display_name" required placeholder="Jane Smith">
+      </div>
+
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required placeholder="you@example.com">
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required minlength="6" placeholder="min 6 characters">
+      </div>
+
+      <!-- CBO-only field -->
+      <div class="form-group cbo-only" id="cboField" style="display:none;">
+        <label for="cbo_name">Organisation Name</label>
+        <input type="text" id="cbo_name" name="cbo_name" placeholder="e.g. Busia Community Tool Hub">
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block">
+        <i class="fas fa-user-plus"></i> Create Account
+      </button>
+    </form>
+
+    <p class="auth-footer-text">
+      Already have an account? <a href="{{ url_for('auth.login') }}">Log in</a>
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.role-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const role = btn.dataset.role;
+    document.getElementById('roleInput').value = role;
+    document.getElementById('cboField').style.display = role === 'cbo' ? 'block' : 'none';
+  });
+});
+</script>
+{% endblock %}

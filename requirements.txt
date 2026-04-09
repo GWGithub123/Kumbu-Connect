@@ -1,0 +1,11 @@
+flask>=3.0
+flask-sqlalchemy>=3.1
+flask-login>=0.6
+python-dotenv>=1.0
+requests>=2.31
+werkzeug>=3.0
+google-genai>=1.0
+twilio>=9.0
+firebase-admin>=6.5
+phonenumbers>=8.13
+gunicorn>=23.0

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}SMS Admin — Kumbu Connect{% endblock %}
+
+{% block content %}
+<div class="container admin-page">
+  <section class="admin-hero">
+    <div>
+      <h1><i class="fas fa-comment-sms"></i> Community SMS Admin</h1>
+      <p>Monitor keyword enrollments, recent responses, configuration readiness, and scheduled re-engagement for the community feedback system.</p>
+      <p class="admin-hero-note">To run the test simulator, open any CBO card below and use the Local SMS Simulator panel.</p>
+    </div>
+    <div class="admin-hero-actions">
+      <form method="POST" action="{{ url_for('main.run_community_feedback_checkins') }}">
+        <button type="submit" class="btn btn-primary"><i class="fas fa-paper-plane"></i> Run Due Check-Ins</button>
+      </form>
+      <a href="{{ url_for('main.marketplace') }}" class="btn btn-outline">Back to Marketplace</a>
+    </div>
+  </section>
+
+  <section class="admin-stats-grid">
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Tracked CBOs</span>
+      <strong class="admin-stat-value">{{ totals.cbos }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Active Subscribers</span>
+      <strong class="admin-stat-value">{{ totals.subscribers }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Completed Responses</span>
+      <strong class="admin-stat-value">{{ totals.responses }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Check-In Cadence</span>
+      <strong class="admin-stat-value">{{ readiness.checkin_months }} months</strong>
+    </div>
+  </section>
+
+  <section class="admin-panel readiness-panel">
+    <div class="admin-panel-header">
+      <h2><i class="fas fa-server"></i> Integration Readiness</h2>
+    </div>
+    <div class="readiness-grid">
+      <div class="readiness-item {% if readiness.twilio_configured %}is-ready{% else %}is-missing{% endif %}">
+        <span class="readiness-title">Twilio Credentials</span>
+        <strong>{{ 'Configured' if readiness.twilio_configured else 'Missing' }}</strong>
+      </div>
+      <div class="readiness-item {% if readiness.firestore_configured %}is-ready{% else %}is-missing{% endif %}">
+        <span class="readiness-title">Firestore Sync</span>
+        <strong>{{ 'Configured' if readiness.firestore_configured else 'Not configured' }}</strong>
+      </div>
+      <div class="readiness-item {% if readiness.signature_validation %}is-ready{% else %}is-missing{% endif %}">
+        <span class="readiness-title">Twilio Signature Validation</span>
+        <strong>{{ 'Enabled' if readiness.signature_validation else 'Disabled' }}</strong>
+      </div>
+      <div class="readiness-item is-neutral">
+        <span class="readiness-title">Webhook URL</span>
+        <strong class="readiness-url">{{ readiness.webhook_url }}</strong>
+      </div>
+    </div>
+  </section>
+
+  <div class="admin-layout-grid">
+    <section class="admin-panel">
+      <div class="admin-panel-header">
+        <h2><i class="fas fa-building"></i> CBO Messaging Setup</h2>
+      </div>
+      <div class="admin-cbo-grid">
+        {% for item in cbo_cards %}
+          <article class="admin-cbo-card">
+            <div class="admin-cbo-card-head">
+              <h3>{{ item.cbo.name }}</h3>
+              <span class="classification-tag classification-tag--community">{{ item.summary.keyword }}</span>
+            </div>
+            <p class="admin-cbo-subline">
+              {{ item.summary.subscribers }} subscribers • {{ item.summary.responses }} responses
+              {% if item.summary.avg_rating is not none %}• {{ item.summary.avg_rating }}/10 avg{% endif %}
+            </p>
+            <p class="admin-cbo-prompt">
+              {{ item.cbo.community_prompt or 'Using default onboarding prompt.' }}
+            </p>
+            <div class="admin-cbo-card-actions">
+              <a href="{{ url_for('main.community_feedback_cbo_detail', cbo_id=item.cbo.id) }}#simulator" class="btn btn-sm btn-primary">Open Simulator</a>
+              <a href="{{ url_for('main.community_feedback_cbo_detail', cbo_id=item.cbo.id) }}" class="btn btn-outline btn-sm">Open Activity</a>
+              <a href="{{ url_for('main.cbo_profile', slug=item.cbo.slug) }}" class="btn btn-sm btn-outline">Open Profile</a>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="admin-panel">
+      <div class="admin-panel-header">
+        <h2><i class="fas fa-clock"></i> Recent Community Responses</h2>
+      </div>
+      {% if recent_feedback %}
+        <div class="activity-feed">
+          {% for feedback in recent_feedback %}
+            <article class="activity-card">
+              <div class="activity-card-head">
+                <strong>{{ feedback.cbo.name }}</strong>
+                <span>{{ feedback.completed_at.strftime('%Y-%m-%d %H:%M') if feedback.completed_at else 'In progress' }}</span>
+              </div>
+              <p class="activity-meta">
+                Rating: {{ feedback.rating if feedback.rating is not none else '—' }}/10
+                • Help count: {{ feedback.help_count if feedback.help_count is not none else '—' }}
+                • {{ feedback.cycle_type | title }}
+              </p>
+              <p class="activity-quote">{{ feedback.anecdote or 'No anecdote provided.' }}</p>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="admin-empty-state">No SMS responses have been completed yet.</p>
+      {% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}

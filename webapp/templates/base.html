@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Kumbu Connect{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤝</text></svg>">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <!-- ── Navbar ─────────────────────────────────────────────── -->
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a href="{{ url_for('main.index') }}" class="nav-brand">
+        <i class="fas fa-handshake"></i> Kumbu Connect
+      </a>
+      <div class="nav-links">
+        {% if current_user.is_authenticated %}
+          {% if current_user.role == 'funder' %}
+            <a href="{{ url_for('main.marketplace') }}">Marketplace</a>
+            <a href="{{ url_for('main.community_feedback_admin') }}">SMS Admin</a>
+          {% else %}
+            <a href="{{ url_for('main.cbo_dashboard') }}">My Profile</a>
+            {% if current_user.cbo_id %}
+              <a href="{{ url_for('main.community_feedback_cbo_detail', cbo_id=current_user.cbo_id) }}">SMS Activity</a>
+            {% endif %}
+          {% endif %}
+          <span class="nav-user">
+            <i class="fas fa-user-circle"></i> {{ current_user.display_name }}
+            <span class="badge badge-{{ current_user.role }}">{{ current_user.role|upper }}</span>
+          </span>
+          <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline">Logout</a>
+        {% else %}
+          <a href="{{ url_for('auth.login') }}" class="btn btn-sm btn-primary">Login</a>
+        {% endif %}
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Flash messages ──────────────────────────────────────── -->
+  <div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">
+            {{ message }}
+            <button class="alert-close" onclick="this.parentElement.remove()">×</button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+  </div>
+
+  <!-- ── Main content ────────────────────────────────────────── -->
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- ── Footer ──────────────────────────────────────────────── -->
+  <footer class="site-footer">
+    <div class="container">
+      <p>&copy; 2026 Kumbu Connect — Empowering Rural Communities Through Data-Driven Partnerships</p>
+    </div>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,122 @@
+[
+  {
+    "name": "Busia Community Tool Hub",
+    "slug": "busia-community-tool-hub",
+    "kobo_asset_id": "anbM2Z9ECM85NdMiURVBQE",
+    "cbo_type": "tools",
+    "tier": "high",
+    "location": "Busia County, Kenya"
+  },
+  {
+    "name": "Kakamega Farm Collective",
+    "slug": "kakamega-farm-collective",
+    "kobo_asset_id": "a7UnyaSzP9dbwuSkVHqWkY",
+    "cbo_type": "tools",
+    "tier": "mid",
+    "location": "Kakamega County, Kenya"
+  },
+  {
+    "name": "Siaya Tool Share CBO",
+    "slug": "siaya-tool-share",
+    "kobo_asset_id": "a6eL2HKxpdMdPNJ52BemuV",
+    "cbo_type": "tools",
+    "tier": "low",
+    "location": "Siaya County, Kenya"
+  },
+  {
+    "name": "Bright Futures Education CBO",
+    "slug": "bright-futures-education",
+    "kobo_asset_id": "aYk5Ft2KgzKfYQ9paBwohJ",
+    "cbo_type": "education",
+    "tier": "high",
+    "location": "Nairobi County, Kenya"
+  },
+  {
+    "name": "Westlands Learning Circle",
+    "slug": "westlands-learning-circle",
+    "kobo_asset_id": "ahSga2Cf8UbTa7xD2ErAet",
+    "cbo_type": "education",
+    "tier": "mid",
+    "location": "Nairobi County, Kenya"
+  },
+  {
+    "name": "Kibera Homework Club",
+    "slug": "kibera-homework-club",
+    "kobo_asset_id": "aqU2oEQ8r64tUkh6MC6mBg",
+    "cbo_type": "education",
+    "tier": "low",
+    "location": "Nairobi County, Kenya"
+  },
+  {
+    "name": "Health For All CBO",
+    "slug": "health-for-all",
+    "kobo_asset_id": "anvxtsE6RZHyWidkARQsJ6",
+    "cbo_type": "healthcare",
+    "tier": "high",
+    "location": "Kisumu County, Kenya"
+  },
+  {
+    "name": "Mombasa Wellness Network",
+    "slug": "mombasa-wellness-network",
+    "kobo_asset_id": "aoUDmsxXR6eWngfayDnzaR",
+    "cbo_type": "healthcare",
+    "tier": "mid",
+    "location": "Mombasa County, Kenya"
+  },
+  {
+    "name": "Vihiga Clinic Aid CBO",
+    "slug": "vihiga-clinic-aid",
+    "kobo_asset_id": "aJmDgWnUkoedcGL4JVMTtt",
+    "cbo_type": "healthcare",
+    "tier": "low",
+    "location": "Vihiga County, Kenya"
+  },
+  {
+    "name": "Green Harvest Agriculture CBO",
+    "slug": "green-harvest-agriculture",
+    "kobo_asset_id": "aUq4yxrjyuD29swHNBvYbW",
+    "cbo_type": "agriculture",
+    "tier": "high",
+    "location": "Nakuru County, Kenya"
+  },
+  {
+    "name": "Rift Valley Growers CBO",
+    "slug": "rift-valley-growers",
+    "kobo_asset_id": "aq8MDHZ3NE7vhvY7NyqYfA",
+    "cbo_type": "agriculture",
+    "tier": "mid",
+    "location": "Uasin Gishu County, Kenya"
+  },
+  {
+    "name": "Kisii Smallholder CBO",
+    "slug": "kisii-smallholder",
+    "kobo_asset_id": "aBYJtwxFqdYQ3edE8edJkb",
+    "cbo_type": "agriculture",
+    "tier": "low",
+    "location": "Kisii County, Kenya"
+  },
+  {
+    "name": "Clean Water Initiative CBO",
+    "slug": "clean-water-initiative",
+    "kobo_asset_id": "aqQZC3PcysSK8FXpoQghTt",
+    "cbo_type": "water",
+    "tier": "high",
+    "location": "Machakos County, Kenya"
+  },
+  {
+    "name": "Turkana Water Access CBO",
+    "slug": "turkana-water-access",
+    "kobo_asset_id": "aMGAMep4MXGfaXqPHBzKoW",
+    "cbo_type": "water",
+    "tier": "mid",
+    "location": "Turkana County, Kenya"
+  },
+  {
+    "name": "Kwale Springs CBO",
+    "slug": "kwale-springs",
+    "kobo_asset_id": "aRWcyukYq7wWVpRUcQZsnb",
+    "cbo_type": "water",
+    "tier": "low",
+    "location": "Kwale County, Kenya"
+  }
+]

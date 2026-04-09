@@ -1,0 +1,31 @@
+date_loaned,time_loaned,date_returned,time_returned,tool_name,borrower_name,borrower_signature,condition_upon_return,damage_charged,return_notes,serial_number,quantity
+2026-01-26,11:15,2026-02-09,13:15,Sander,Michael Chen,Michael,Good Condition upon Return,No charge,,TOOL-1000,1
+2025-11-21,08:15,2025-11-29,10:15,Pliers,Danek Obriondo,Derek,Good condition upon return,$15 repair needed,,TOOL-1001,3
+2025-12-30,13:00,2026-01-08,13:15,Pliers,Maria Rodriguez,Jesse,Excellent condition,—,,TOOL-1002,2
+2025-11-25,08:15,2025-12-08,11:30,Wheelbarrow,John Thompson,Lydia,Good Condition upon Return,—,,TOOL-1003,3
+2025-12-26,16:00,2026-01-03,14:45,Pliers,Danek Obriondo,Israel,Good condition upon return,$5 cleaning fee,On time return,TOOL-1004,1
+2025-12-17,09:15,2025-12-30,09:15,Sander,Isaac Simkin,Maria,Needs cleaning,$10 minor damage,"Late return, no charge",TOOL-1005,2
+2026-01-19,08:00,2026-01-26,17:00,Drill,Clement Jackson,Michael,Excellent condition,No charge,On time return,TOOL-1006,4
+2026-01-10,10:45,2026-01-23,17:30,Hammer,Derek Obriondo,Isaac,Excellent condition,—,,TOOL-1007,3
+2026-02-04,13:30,2026-02-10,11:45,Saw,Isaac Simkin,Isaac,Excellent condition,$15 repair needed,Good borrower,TOOL-1008,2
+2025-12-24,11:15,2026-01-07,15:15,Power Drill,Cassanova Miller,Lydia,Small scratch noted,—,,TOOL-1009,2
+2026-01-12,13:15,2026-01-15,16:30,Ladder,Clement Jackson,Clement,Excellent condition,$15 repair needed,Returned clean,TOOL-1010,3
+2025-12-18,15:15,2025-12-24,15:00,Sander,John Thompson,Isaac,"Minor wear, acceptable",$10 minor damage,On time return,TOOL-1011,1
+2026-01-25,16:15,2026-02-01,17:15,Drill,Lydia Anwor,Cassanova,Good Condition upon Return,$15 repair needed,Needs inspection,TOOL-1012,1
+2026-01-27,17:30,2026-02-04,09:15,Sander,Derek Obriondo,Sarah,Good condition upon return,—,Returned clean,TOOL-1013,4
+2026-02-12,09:15,2026-02-18,12:00,Wheelbarrow,Patricia Davis,Michael,Needs cleaning,No charge,"Late return, no charge",TOOL-1014,1
+2026-01-29,17:30,2026-02-02,14:30,Paint Roller,John Thompson,Israel,"Minor wear, acceptable",—,On time return,TOOL-1015,2
+2025-11-30,08:45,2025-12-11,09:15,Power Drill,Patricia Davis,Clement,Good condition upon return,$5 cleaning fee,"Late return, no charge",TOOL-1016,4
+2026-02-10,15:00,2026-02-24,10:45,Ladder,John Thompson,Lydia,Good Condition upon Return,—,Needs inspection,TOOL-1017,1
+2025-12-24,13:00,2026-01-04,14:00,Circular Saw,Maria Rodriguez,Clement,Good Condition upon Return,$15 repair needed,On time return,TOOL-1018,1
+2026-01-18,14:00,2026-01-31,15:15,Ladder,Lydia Anwor,Michael,Small scratch noted,—,On time return,TOOL-1019,3
+2025-12-29,09:00,2026-01-03,11:15,Power Drill,Michael Chen,Jesse,Excellent condition,—,Needs inspection,TOOL-1020,4
+2025-11-26,16:30,2025-12-06,08:00,Drill,Derek Obriondo,Isaac,Good Condition upon Return,No charge,,TOOL-1021,2
+2026-01-19,12:15,2026-01-28,10:00,Wheelbarrow,Patricia Davis,Cassanova,Needs cleaning,$10 minor damage,Needs inspection,TOOL-1022,2
+2026-02-01,16:15,2026-02-11,08:30,Drill,Cassanova Miller,Michael,Needs cleaning,$10 minor damage,Returned clean,TOOL-1023,3
+2025-11-28,08:15,2025-12-07,17:45,Garden Hose,Israel Simmons,Danek,Needs cleaning,$10 minor damage,"Late return, no charge",TOOL-1024,4
+2026-02-03,15:45,2026-02-16,09:15,Drill,Israel Simmons,Clement,Good condition upon return,—,Good borrower,TOOL-1025,4
+2026-02-07,15:15,2026-02-17,13:45,Sander,Lydia Anwor,Michael,Good Condition upon Return,$10 minor damage,Needs inspection,TOOL-1026,3
+2026-01-20,10:45,2026-01-27,08:30,Pliers,Clement Jackson,Sarah,Small scratch noted,$10 minor damage,On time return,TOOL-1027,4
+2026-01-13,10:45,2026-01-22,10:30,Paint Roller,Maria Rodriguez,Jesse,Good condition upon return,$5 cleaning fee,"Late return, no charge",TOOL-1028,2
+2026-02-04,16:00,2026-02-18,13:15,Level,Jesse Artache,Danek,Excellent condition,—,,TOOL-1029,1
