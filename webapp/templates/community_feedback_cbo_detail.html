@@ -1,23 +1,329 @@
 {% extends "base.html" %}
 {% block title %}SMS Activity — {{ cbo.name }}{% endblock %}
 
+{% macro bookkeeping_column_class(column_name) -%}
+{%- set column = (column_name or '')|lower -%}
+{%- if 'date' in column -%}
+bookkeeping-table__col--date
+{%- elif 'sign' in column -%}
+bookkeeping-table__col--signature
+{%- elif column in ['row', 'no', 'no.', 'sn', 's/n', 'm/f', 'sex', 'gender', 'days'] or 'days' in column or 'qty' in column or 'quantity' in column -%}
+bookkeeping-table__col--short
+{%- elif 'name' in column or 'tool' in column -%}
+bookkeeping-table__col--name
+{%- elif 'amount' in column or 'fee' in column or 'revenue' in column or 'cost' in column or 'price' in column or 'balance' in column -%}
+bookkeeping-table__col--amount
+{%- elif 'phone' in column or 'id' in column -%}
+bookkeeping-table__col--id
+{%- else -%}
+bookkeeping-table__col--text
+{%- endif -%}
+{%- endmacro %}
+
+{% block head %}
+<style>
+  .sms-qr-panel { max-width: none; }
+  .sms-detail-stats-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .sms-detail-stats-grid .admin-stat-card {
+    padding: 16px 18px;
+    min-height: 104px;
+  }
+  .sms-detail-stats-grid .admin-stat-value {
+    font-size: 1.35rem;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .sms-qr-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 0.75rem;
+    align-items: stretch;
+  }
+  .sms-qr-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    min-width: 0;
+    min-height: 100%;
+    padding: 1rem;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 16px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  }
+  .sms-qr-card__label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted, #64748b); display: flex; align-items: center; gap: 0.35rem; }
+  .sms-qr-card__label .fab.fa-whatsapp { color: #25d366; font-size: 1rem; }
+  .sms-qr-code { display: flex; justify-content: center; }
+  .sms-qr-code svg { width: 160px; height: 160px; display: block; border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 6px; background: #fff; }
+  .sms-qr-code--placeholder { width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; margin: 0 auto; border: 1px dashed var(--border-color, #cbd5e1); border-radius: 8px; background: #f8fafc; color: #64748b; }
+  .sms-qr-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .sms-qr-actions { margin-top: auto; }
+  .sms-qr-card__note { margin: 0; max-width: none; color: var(--text-muted, #64748b); font-size: 0.88rem; line-height: 1.5; }
+  .sms-detail-firestore-panel { margin-top: -6px; }
+  .activity-tabs { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 1.5rem 0 1rem; }
+  .activity-tab { border: 1px solid var(--border-color, #cbd5e1); background: #fff; color: var(--text-color, #0f172a); border-radius: 999px; padding: 0.7rem 1rem; font-weight: 600; cursor: pointer; }
+  .activity-tab.is-active { background: #0f172a; color: #fff; border-color: #0f172a; }
+  .activity-panel[hidden] { display: none !important; }
+  .activity-embed-shell {
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 20px;
+    overflow: hidden;
+    background: #fff;
+    min-height: 680px;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+  }
+  .activity-embed-frame {
+    display: block;
+    width: 100%;
+    min-height: 680px;
+    border: 0;
+    background: #fff;
+  }
+  .sms-bookkeeping-summary-grid,
+  .sms-profile-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  .sms-bookkeeping-summary-grid {
+    margin-bottom: 1rem;
+  }
+  .sms-bookkeeping-stat,
+  .sms-profile-card,
+  .sms-bookkeeping-access-card {
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 16px;
+    background: #fff;
+    padding: 1rem;
+    min-width: 0;
+  }
+  .sms-bookkeeping-stat span,
+  .sms-profile-card__label {
+    display: block;
+    color: var(--text-muted, #64748b);
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .sms-bookkeeping-stat strong {
+    display: block;
+    margin-top: 0.4rem;
+    color: var(--navy);
+    font-size: 1.35rem;
+    line-height: 1.25;
+  }
+  .sms-bookkeeping-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.8fr);
+    gap: 1rem;
+    align-items: start;
+  }
+  .sms-bookkeeping-workspace {
+    min-width: 0;
+  }
+  .sms-bookkeeping-table-note {
+    margin: 0 0 0.85rem;
+    color: var(--text-muted, #64748b);
+    font-size: 0.9rem;
+  }
+  .sms-bookkeeping-access-card {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  }
+  .sms-bookkeeping-access-card h3,
+  .sms-profile-card h3,
+  .sms-profile-hero h3 {
+    margin: 0.35rem 0 0.45rem;
+    color: var(--navy);
+  }
+  .sms-bookkeeping-access-card p,
+  .sms-profile-card p,
+  .sms-profile-hero p {
+    color: var(--text-muted, #64748b);
+  }
+  .sms-bookkeeping-access-card__qr {
+    display: flex;
+    justify-content: center;
+    margin: 1rem 0;
+  }
+  .sms-bookkeeping-access-card__qr svg {
+    width: 170px;
+    height: 170px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 12px;
+    padding: 8px;
+    background: #fff;
+  }
+  .sms-bookkeeping-access-card__actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .sms-digitized-folders {
+    margin-top: 1rem;
+  }
+  .sms-digitized-note {
+    margin-top: 0.55rem;
+    color: var(--text-muted, #64748b);
+    font-size: 0.88rem;
+  }
+  .sms-profile-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+    margin-bottom: 1rem;
+  }
+  .sms-profile-eyebrow {
+    margin: 0;
+    color: var(--teal-dark);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .sms-profile-tagline {
+    margin: 0;
+    font-size: 1rem;
+  }
+  .sms-profile-meta {
+    display: grid;
+    gap: 0.65rem;
+  }
+  .sms-profile-meta span,
+  .sms-profile-focus {
+    color: var(--gray-600);
+    font-size: 0.94rem;
+  }
+  .sms-profile-focus {
+    margin: 0 0 1rem;
+  }
+  .sms-profile-list,
+  .sms-profile-impact-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.65rem;
+  }
+  .sms-profile-list li,
+  .sms-profile-impact-list li {
+    color: var(--gray-700);
+    line-height: 1.45;
+  }
+  .sms-profile-quote {
+    margin: 0;
+    padding: 0.9rem 1rem;
+    border-radius: 14px;
+    background: #f8fafc;
+    color: var(--gray-700);
+  }
+  .sms-profile-quote footer {
+    margin-top: 0.55rem;
+    color: var(--text-muted, #64748b);
+    font-size: 0.86rem;
+  }
+  .sms-profile-card--wide {
+    grid-column: span 2;
+  }
+  .sms-profile-impact-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+  .sms-profile-impact-card {
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 16px;
+    background: #f8fbff;
+    padding: 1rem;
+  }
+  .sms-profile-impact-card strong {
+    display: block;
+    color: var(--navy);
+    font-size: 1.05rem;
+    margin-bottom: 0.35rem;
+  }
+  .sms-profile-impact-card span {
+    color: var(--gray-600);
+    font-size: 0.92rem;
+  }
+  .google-form-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  .google-form-note { margin-top: 1rem; padding: 0.95rem 1rem; border-radius: 12px; border: 1px solid var(--border-color, #e2e8f0); background: #f8fafc; }
+  .google-form-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin: 1rem 0; }
+  .google-form-summary-card { border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; background: #fff; padding: 0.85rem 1rem; }
+  .google-form-summary-card span { display: block; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted, #64748b); }
+  .google-form-summary-card strong { display: block; margin-top: 0.35rem; font-size: 1.4rem; color: var(--text-color, #0f172a); }
+  .google-form-summary-card small { display: block; margin-top: 0.35rem; color: var(--text-muted, #64748b); }
+  .google-form-status { margin-top: 0.5rem; color: var(--text-muted, #64748b); font-size: 0.9rem; }
+  .google-form-status--processed { color: #166534; }
+  .google-form-status--failed { color: #b91c1c; }
+  .google-form-status--pending { color: #92400e; }
+  .google-form-response-list { display: grid; gap: 1rem; margin-top: 1rem; }
+  .google-form-response-card { border: 1px solid var(--border-color, #e2e8f0); border-radius: 16px; background: #fff; padding: 1rem; }
+  .google-form-response-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+  .google-form-response-meta { display: block; margin-top: 0.25rem; color: var(--text-muted, #64748b); font-size: 0.92rem; }
+  .google-form-response-chip { border-radius: 999px; background: #eef2ff; color: #312e81; padding: 0.35rem 0.7rem; font-size: 0.82rem; font-weight: 700; }
+  .google-form-answer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+  .google-form-answer-card { border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; background: #f8fafc; padding: 0.8rem 0.9rem; }
+  .google-form-answer-card span { display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted, #64748b); }
+  .google-form-answer-card p { margin: 0; }
+  .google-form-upload-section { margin-top: 1rem; }
+  .google-form-upload-section h4 { margin-bottom: 0.75rem; }
+  .google-form-image-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; }
+  .google-form-image-card { border: 1px solid var(--border-color, #e2e8f0); border-radius: 14px; overflow: hidden; background: #fff; }
+  .google-form-image-preview { aspect-ratio: 4 / 3; background: #e2e8f0; display: flex; align-items: center; justify-content: center; color: #64748b; }
+  .google-form-image-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .google-form-image-caption { padding: 0.8rem; }
+  .google-form-image-caption strong { display: block; }
+  .google-form-bookkeeping-list { display: grid; gap: 0.85rem; }
+  .google-form-bookkeeping-card { display: grid; grid-template-columns: minmax(160px, 220px) 1fr; gap: 0.9rem; border: 1px solid var(--border-color, #e2e8f0); border-radius: 14px; background: #fff; padding: 0.9rem; }
+  .google-form-bookkeeping-preview { min-height: 150px; border-radius: 12px; background: #e2e8f0; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #64748b; }
+  .google-form-bookkeeping-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .google-form-bookkeeping-stats { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.6rem 0; }
+  .google-form-stat-chip { border-radius: 999px; background: #f1f5f9; color: #0f172a; padding: 0.32rem 0.65rem; font-size: 0.82rem; font-weight: 600; }
+  @media (max-width: 1280px) {
+    .sms-detail-stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .sms-qr-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sms-bookkeeping-summary-grid,
+    .sms-profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sms-bookkeeping-layout,
+    .sms-profile-hero,
+    .sms-profile-impact-grid { grid-template-columns: 1fr; }
+    .sms-profile-card--wide { grid-column: auto; }
+  }
+  @media (max-width: 800px) {
+    .sms-detail-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sms-qr-grid { grid-template-columns: 1fr; }
+    .sms-bookkeeping-summary-grid,
+    .sms-profile-grid,
+    .sms-profile-impact-grid { grid-template-columns: 1fr; }
+    .google-form-bookkeeping-card { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container admin-page">
   <section class="admin-hero">
     <div>
       <h1><i class="fas fa-signal-messenger"></i> SMS Activity: {{ cbo.name }}</h1>
-      <p>Manage the keyword and prompt, inspect subscriber state, review transcripts, and simulate inbound SMS messages locally.</p>
+      <p>Manage the keyword, inspect subscriber state, review intake data, and use the scanner and bookkeeping tools tied directly to this CBO.</p>
     </div>
     <div class="admin-hero-actions">
-      {% if current_user.role == 'funder' %}
-        <a href="{{ url_for('main.community_feedback_admin') }}" class="btn btn-outline">Back to SMS Admin</a>
+      {% if developer_access %}
+        <a href="{{ url_for('main.developer_sms_activity') }}" class="btn btn-outline">Back to SMS Activity</a>
       {% else %}
         <a href="{{ url_for('main.cbo_dashboard') }}" class="btn btn-outline">Back to Profile</a>
       {% endif %}
     </div>
   </section>
 
-  <section class="admin-stats-grid">
+  <section class="admin-stats-grid sms-detail-stats-grid">
     <div class="admin-stat-card">
       <span class="admin-stat-label">Keyword</span>
       <strong class="admin-stat-value">{{ summary.keyword }}</strong>
@@ -31,6 +337,10 @@
       <strong class="admin-stat-value">{{ summary.responses }}</strong>
     </div>
     <div class="admin-stat-card">
+      <span class="admin-stat-label">Intake Responses</span>
+      <strong class="admin-stat-value">{{ google_form_summary.response_count }}</strong>
+    </div>
+    <div class="admin-stat-card">
       <span class="admin-stat-label">Twilio Ready</span>
       <strong class="admin-stat-value">{{ 'Yes' if twilio_ready else 'No' }}</strong>
     </div>
@@ -40,7 +350,107 @@
     </div>
   </section>
 
-  <section class="admin-panel firestore-structure-panel">
+  <section class="admin-panel sms-qr-panel">
+    <div class="admin-panel-header">
+      <h2><i class="fas fa-qrcode"></i> Quick Access QR Codes</h2>
+    </div>
+    <p class="panel-help-text">Keep the main actions on one row: start SMS feedback, open WhatsApp, launch the mobile scanner, or jump straight into the bookkeeping offline app for this CBO.</p>
+    <div class="sms-qr-grid">
+      <div class="sms-qr-card">
+        <span class="sms-qr-card__label"><i class="fas fa-comment-sms"></i> SMS / Messages</span>
+        {% if sms_qr_svg %}
+          <div class="sms-qr-code">{{ sms_qr_svg|safe }}</div>
+        {% else %}
+          <div class="sms-qr-code sms-qr-code--placeholder">
+            <i class="fas fa-comment-sms fa-3x"></i>
+          </div>
+        {% endif %}
+        {% if sms_qr_url %}
+          <p class="sms-qr-card__note">Scan to open Messages with <strong>{{ twilio_phone }}</strong> pre-filled with the keyword <strong>{{ signup_message }}</strong>.</p>
+        {% else %}
+          <p class="sms-qr-card__note">Configure a Twilio phone number to generate the SMS sign-up QR code for this CBO.</p>
+        {% endif %}
+        <div class="sms-qr-actions">
+          {% if sms_qr_url %}
+            <a href="{{ sms_qr_url }}" class="btn btn-outline btn-xs"><i class="fas fa-mobile-screen-button"></i> Open</a>
+            <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ sms_qr_url }}"><i class="fas fa-copy"></i> Copy</button>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="sms-qr-card">
+        <span class="sms-qr-card__label"><i class="fab fa-whatsapp"></i> WhatsApp</span>
+        {% if wa_qr_svg %}
+          <div class="sms-qr-code">{{ wa_qr_svg|safe }}</div>
+        {% else %}
+          <div class="sms-qr-code sms-qr-code--placeholder">
+            <i class="fab fa-whatsapp fa-3x"></i>
+          </div>
+        {% endif %}
+        {% if wa_qr_url %}
+          <p class="sms-qr-card__note">Scan to open WhatsApp with the same pre-filled keyword flow for <strong>{{ cbo.name }}</strong>.</p>
+        {% else %}
+          <p class="sms-qr-card__note">Configure a Twilio phone number to generate the WhatsApp quick-start QR code for this CBO.</p>
+        {% endif %}
+        <div class="sms-qr-actions">
+          {% if wa_qr_url %}
+            <a href="{{ wa_qr_url }}" class="btn btn-outline btn-xs" target="_blank" rel="noopener"><i class="fas fa-mobile-screen-button"></i> Open</a>
+            <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ wa_qr_url }}"><i class="fas fa-copy"></i> Copy</button>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="sms-qr-card">
+        <span class="sms-qr-card__label"><i class="fas fa-camera"></i> Mobile Scanner</span>
+        {% if mobile_scan.qr_svg %}
+          <div class="sms-qr-code">{{ mobile_scan.qr_svg|safe }}</div>
+        {% else %}
+          <div class="sms-qr-code sms-qr-code--placeholder">
+            <i class="fas fa-mobile-screen-button fa-3x"></i>
+          </div>
+        {% endif %}
+        {% if mobile_scan.availability_message %}
+          <p class="sms-qr-card__note">{{ mobile_scan.availability_message }}</p>
+        {% else %}
+          <p class="sms-qr-card__note">Scans captured here stay attached to {{ cbo.name }} so the uploaded documents and resulting digitized rows remain inside this CBO record.</p>
+        {% endif %}
+        <div class="sms-qr-actions">
+          <a href="{{ mobile_scan.url or mobile_scan.preview_url }}" class="btn btn-outline btn-xs" target="_blank" rel="noopener"><i class="fas fa-mobile-screen-button"></i> Open Scanner</a>
+          {% if mobile_scan.url %}
+            <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ mobile_scan.url }}"><i class="fas fa-copy"></i> Copy Link</button>
+          {% else %}
+            <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ mobile_scan.preview_url }}"><i class="fas fa-copy"></i> Copy Preview</button>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="sms-qr-card">
+        <span class="sms-qr-card__label"><i class="fas fa-wifi"></i> Bookkeeping Offline</span>
+        {% if bookkeeping_offline.qr_svg %}
+          <div class="sms-qr-code">{{ bookkeeping_offline.qr_svg|safe }}</div>
+        {% else %}
+          <div class="sms-qr-code sms-qr-code--placeholder">
+            <i class="fas fa-wifi fa-3x"></i>
+          </div>
+        {% endif %}
+        {% if bookkeeping_offline.availability_message %}
+          <p class="sms-qr-card__note">{{ bookkeeping_offline.availability_message }}</p>
+        {% else %}
+          <p class="sms-qr-card__note">Open the offline bookkeeping workspace for {{ cbo.name }} to capture ledger entries even when connectivity is unreliable.</p>
+        {% endif %}
+        <div class="sms-qr-actions">
+          <a href="{{ bookkeeping_offline.url or bookkeeping_offline.preview_url }}" class="btn btn-outline btn-xs" target="_blank" rel="noopener"><i class="fas fa-wifi"></i> Open App</a>
+          {% if bookkeeping_offline.url %}
+            <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ bookkeeping_offline.url }}"><i class="fas fa-copy"></i> Copy Link</button>
+          {% else %}
+            <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ bookkeeping_offline.preview_url }}"><i class="fas fa-copy"></i> Copy Preview</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="admin-panel firestore-structure-panel sms-detail-firestore-panel">
     <div class="admin-panel-header">
       <h2><i class="fas fa-database"></i> Firestore Storage Structure</h2>
     </div>
@@ -56,151 +466,617 @@
     {% endif %}
   </section>
 
-  <div class="admin-layout-grid admin-layout-grid--detail">
+  <div class="activity-tabs" role="tablist" aria-label="Activity views">
+    <button type="button" class="activity-tab is-active" data-activity-tab="sms-feedback">SMS Feedback</button>
+    <button type="button" class="activity-tab" data-activity-tab="google-form-responses">Intake Responses</button>
+    <button type="button" class="activity-tab" data-activity-tab="bookkeeping-activity">Bookkeeping Activity</button>
+    <button type="button" class="activity-tab" data-activity-tab="digitized-documents">Digitized Documents</button>
+    <button type="button" class="activity-tab" data-activity-tab="cbo-profile">CBO Profile</button>
+  </div>
+
+  <div class="activity-panel" data-activity-panel="sms-feedback">
+    <div class="admin-layout-grid admin-layout-grid--detail">
+      <section class="admin-panel">
+        <div class="admin-panel-header">
+          <h2><i class="fas fa-sliders-h"></i> Messaging Settings</h2>
+        </div>
+        <form method="POST" action="{{ url_for('main.update_community_feedback_settings', cbo_id=cbo.id) }}" class="settings-form">
+          <div class="form-group">
+            <label for="sms_keyword">SMS Keyword</label>
+            <input type="text" id="sms_keyword" name="sms_keyword" value="{{ cbo.sms_keyword or '' }}" placeholder="Example: KIWA">
+          </div>
+          <div class="form-group">
+            <label for="community_prompt">Custom First Prompt</label>
+            <textarea id="community_prompt" name="community_prompt" rows="5" placeholder="Optional custom onboarding message">{{ cbo.community_prompt or '' }}</textarea>
+          </div>
+          <label class="checkbox-row">
+            <input type="checkbox" name="community_feedback_enabled" {% if cbo.community_feedback_enabled %}checked{% endif %}>
+            <span>Allow this CBO to accept SMS feedback</span>
+          </label>
+          <button type="submit" class="btn btn-primary">Save Settings</button>
+        </form>
+      </section>
+
+      <section class="admin-panel" id="simulator">
+        <div class="admin-panel-header">
+          <h2><i class="fas fa-vial"></i> Local SMS Simulator</h2>
+        </div>
+        <p class="panel-help-text">Use this to test the full flow without Twilio. This form submits the keyword, rating, help count, and your custom feedback in sequence, then stores the result locally and in Firestore.</p>
+        <div class="simulator-steps-box">
+          <strong>This single submit button will run the full sequence</strong>
+          <ol>
+            <li>Keyword: <code>{{ summary.keyword }}</code></li>
+            <li>Your chosen rating</li>
+            <li>Your chosen help count</li>
+            <li>Your custom feedback message</li>
+          </ol>
+        </div>
+        <form method="POST" action="{{ url_for('main.simulate_community_feedback_demo', cbo_id=cbo.id) }}" class="settings-form">
+          <div class="form-group">
+            <label for="from_number">Phone Number</label>
+            <input type="text" id="from_number" name="from_number" placeholder="+254700000000">
+          </div>
+          <div class="form-group">
+            <label for="rating">Rating</label>
+            <input type="text" id="rating" name="rating" value="8" placeholder="1 to 10">
+          </div>
+          <div class="form-group">
+            <label for="help_count">Times Helped</label>
+            <input type="text" id="help_count" name="help_count" value="3" placeholder="Number of times helped">
+          </div>
+          <div class="form-group">
+            <label for="body">Custom Feedback Message</label>
+            <textarea id="body" name="body" rows="5" placeholder="Describe exactly how this CBO helped you or your community"></textarea>
+          </div>
+          <div class="simulator-button-row">
+            <button type="submit" class="btn btn-primary btn-block">Submit Full Test Response</button>
+          </div>
+        </form>
+
+        {% if latest_simulation %}
+          <div class="simulator-reply-box">
+            {% if latest_message %}
+              <span class="simulator-reply-label">Latest submitted flow</span>
+              <p>{{ latest_message }}</p>
+            {% endif %}
+            <span class="simulator-reply-label">Latest system reply</span>
+            <p>{{ latest_simulation }}</p>
+          </div>
+        {% endif %}
+      </section>
+    </div>
+
     <section class="admin-panel">
       <div class="admin-panel-header">
-        <h2><i class="fas fa-sliders-h"></i> Messaging Settings</h2>
+        <h2><i class="fas fa-users"></i> Subscribers</h2>
       </div>
-      <form method="POST" action="{{ url_for('main.update_community_feedback_settings', cbo_id=cbo.id) }}" class="settings-form">
-        <div class="form-group">
-          <label for="sms_keyword">SMS Keyword</label>
-          <input type="text" id="sms_keyword" name="sms_keyword" value="{{ cbo.sms_keyword or '' }}" placeholder="Example: KIWA">
+      {% if subscribers %}
+        <div class="table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Phone</th>
+                <th>Status</th>
+                <th>Conversation State</th>
+                <th>Last Response</th>
+                <th>Last Check-In</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for subscriber in subscribers %}
+                <tr>
+                  <td>{{ subscriber.phone_number }}</td>
+                  <td>{{ subscriber.status }}</td>
+                  <td>{{ subscriber.conversation_state }}</td>
+                  <td>{{ subscriber.last_response_at.strftime('%Y-%m-%d %H:%M') if subscriber.last_response_at else '—' }}</td>
+                  <td>{{ subscriber.last_checkin_sent_at.strftime('%Y-%m-%d %H:%M') if subscriber.last_checkin_sent_at else '—' }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
-        <div class="form-group">
-          <label for="community_prompt">Custom First Prompt</label>
-          <textarea id="community_prompt" name="community_prompt" rows="5" placeholder="Optional custom onboarding message">{{ cbo.community_prompt or '' }}</textarea>
-        </div>
-        <label class="checkbox-row">
-          <input type="checkbox" name="community_feedback_enabled" {% if cbo.community_feedback_enabled %}checked{% endif %}>
-          <span>Allow this CBO to accept SMS feedback</span>
-        </label>
-        <button type="submit" class="btn btn-primary">Save Settings</button>
-      </form>
+      {% else %}
+        <p class="admin-empty-state">No subscribers have enrolled for this CBO yet.</p>
+      {% endif %}
     </section>
 
-    <section class="admin-panel" id="simulator">
+    <section class="admin-panel">
       <div class="admin-panel-header">
-        <h2><i class="fas fa-vial"></i> Local SMS Simulator</h2>
+        <h2><i class="fas fa-scroll"></i> Response Log</h2>
       </div>
-      <p class="panel-help-text">Use this to test the full flow without Twilio. This form submits the keyword, rating, help count, and your custom feedback in sequence, then stores the result locally and in Firestore.</p>
-      <div class="simulator-steps-box">
-        <strong>This single submit button will run the full sequence</strong>
-        <ol>
-          <li>Keyword: <code>{{ summary.keyword }}</code></li>
-          <li>Your chosen rating</li>
-          <li>Your chosen help count</li>
-          <li>Your custom feedback message</li>
-        </ol>
-      </div>
-      <form method="POST" action="{{ url_for('main.simulate_community_feedback_demo', cbo_id=cbo.id) }}" class="settings-form">
-        <div class="form-group">
-          <label for="from_number">Phone Number</label>
-          <input type="text" id="from_number" name="from_number" placeholder="+254700000000">
+      {% if feedback_entries %}
+        <div class="response-log-list">
+          {% for feedback in feedback_entries %}
+            <article class="response-log-card">
+              <div class="response-log-head">
+                <div>
+                  <strong>{{ feedback.subscriber.phone_number }}</strong>
+                  <span class="response-log-meta">{{ feedback.cycle_type | title }} • {{ feedback.status }}</span>
+                </div>
+                <div class="response-log-score">
+                  {{ feedback.rating if feedback.rating is not none else '—' }}/10
+                </div>
+              </div>
+              <p class="response-sync-status">
+                Firestore sync:
+                {% if feedback.firestore_synced_at %}
+                  synced {{ feedback.firestore_synced_at.strftime('%Y-%m-%d %H:%M UTC') }}
+                {% else %}
+                  pending or unavailable
+                {% endif %}
+              </p>
+              <p class="response-log-story">{{ feedback.anecdote or 'No anecdote provided yet.' }}</p>
+              <div class="transcript-bubbles">
+                {% for message in feedback | transcript_messages %}
+                  <div class="transcript-bubble transcript-bubble--{{ message.direction }}">
+                    <span class="transcript-direction">{{ message.direction }}</span>
+                    <p>{{ message.message }}</p>
+                  </div>
+                {% endfor %}
+              </div>
+            </article>
+          {% endfor %}
         </div>
-        <div class="form-group">
-          <label for="rating">Rating</label>
-          <input type="text" id="rating" name="rating" value="8" placeholder="1 to 10">
-        </div>
-        <div class="form-group">
-          <label for="help_count">Times Helped</label>
-          <input type="text" id="help_count" name="help_count" value="3" placeholder="Number of times helped">
-        </div>
-        <div class="form-group">
-          <label for="body">Custom Feedback Message</label>
-          <textarea id="body" name="body" rows="5" placeholder="Describe exactly how this CBO helped you or your community"></textarea>
-        </div>
-        <div class="simulator-button-row">
-          <button type="submit" class="btn btn-primary btn-block">Submit Full Test Response</button>
-        </div>
-      </form>
-
-      {% if latest_simulation %}
-        <div class="simulator-reply-box">
-          {% if latest_message %}
-            <span class="simulator-reply-label">Latest submitted flow</span>
-            <p>{{ latest_message }}</p>
-          {% endif %}
-          <span class="simulator-reply-label">Latest system reply</span>
-          <p>{{ latest_simulation }}</p>
-        </div>
+      {% else %}
+        <p class="admin-empty-state">No feedback records exist for this CBO yet.</p>
       {% endif %}
     </section>
   </div>
 
-  <section class="admin-panel">
-    <div class="admin-panel-header">
-      <h2><i class="fas fa-users"></i> Subscribers</h2>
-    </div>
-    {% if subscribers %}
-      <div class="table-wrap">
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th>Phone</th>
-              <th>Status</th>
-              <th>Conversation State</th>
-              <th>Last Response</th>
-              <th>Last Check-In</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for subscriber in subscribers %}
-              <tr>
-                <td>{{ subscriber.phone_number }}</td>
-                <td>{{ subscriber.status }}</td>
-                <td>{{ subscriber.conversation_state }}</td>
-                <td>{{ subscriber.last_response_at.strftime('%Y-%m-%d %H:%M') if subscriber.last_response_at else '—' }}</td>
-                <td>{{ subscriber.last_checkin_sent_at.strftime('%Y-%m-%d %H:%M') if subscriber.last_checkin_sent_at else '—' }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+  <div class="activity-panel" data-activity-panel="google-form-responses" hidden>
+    <section class="admin-panel">
+      <div class="admin-panel-header">
+        <h2><i class="fas fa-file-signature"></i> Intake Responses</h2>
       </div>
-    {% else %}
-      <p class="admin-empty-state">No subscribers have enrolled for this CBO yet.</p>
-    {% endif %}
-  </section>
-
-  <section class="admin-panel">
-    <div class="admin-panel-header">
-      <h2><i class="fas fa-scroll"></i> Response Log</h2>
-    </div>
-    {% if feedback_entries %}
-      <div class="response-log-list">
-        {% for feedback in feedback_entries %}
-          <article class="response-log-card">
-            <div class="response-log-head">
-              <div>
-                <strong>{{ feedback.subscriber.phone_number }}</strong>
-                <span class="response-log-meta">{{ feedback.cycle_type | title }} • {{ feedback.status }}</span>
-              </div>
-              <div class="response-log-score">
-                {{ feedback.rating if feedback.rating is not none else '—' }}/10
-              </div>
-            </div>
-            <p class="response-sync-status">
-              Firestore sync:
-              {% if feedback.firestore_synced_at %}
-                synced {{ feedback.firestore_synced_at.strftime('%Y-%m-%d %H:%M UTC') }}
-              {% else %}
-                pending or unavailable
+      {% if intake_form_responder_url or intake_offline.preview_url or google_form_summary.responses or google_forms_enabled %}
+        <div class="google-form-toolbar">
+          <div>
+            <p class="panel-help-text" style="margin:0;">Review intake responses captured through Google Forms or the Kumbu Intake App. Google Form sync is manual; the Kumbu Intake App syncs queued submissions automatically once connectivity returns.</p>
+          </div>
+          <div class="sms-qr-actions">
+            {% if intake_form_responder_url %}
+              <button type="button" class="btn btn-primary" id="syncGoogleFormResponsesBtn">
+                <i class="fas fa-rotate"></i> Sync Google Form
+              </button>
+              <a href="{{ intake_form_responder_url }}" class="btn btn-outline" target="_blank" rel="noopener">
+                <i class="fas fa-external-link-alt"></i> Open Form
+              </a>
+              {% if intake_form_edit_url %}
+                <a href="{{ intake_form_edit_url }}" class="btn btn-outline" target="_blank" rel="noopener">
+                  <i class="fas fa-pen"></i> Edit Form
+                </a>
               {% endif %}
-            </p>
-            <p class="response-log-story">{{ feedback.anecdote or 'No anecdote provided yet.' }}</p>
-            <div class="transcript-bubbles">
-              {% for message in feedback | transcript_messages %}
-                <div class="transcript-bubble transcript-bubble--{{ message.direction }}">
-                  <span class="transcript-direction">{{ message.direction }}</span>
-                  <p>{{ message.message }}</p>
+            {% elif google_forms_enabled %}
+              <button type="button" class="btn btn-primary" id="createIntakeFormBtn">
+                <i class="fas fa-plus"></i> Create Google Form
+              </button>
+            {% endif %}
+            {% if intake_offline.preview_url %}
+              <a href="{{ intake_offline.preview_url }}" class="btn btn-outline" target="_blank" rel="noopener">
+                <i class="fas fa-mobile-screen-button"></i> Preview Intake App
+              </a>
+            {% endif %}
+          </div>
+        </div>
+
+        {% if intake_form_responder_url %}
+        <div class="google-form-note">
+          Add two File upload questions in the Google Form editor with these exact titles so uploads are classified correctly: <strong>{{ google_form_upload_titles.general_image }}</strong> and <strong>{{ google_form_upload_titles.bookkeeping_document }}</strong>. The Google Forms API cannot create file-upload questions directly, so Kumbu Connect syncs them once they exist on the form.
+        </div>
+        {% elif google_forms_enabled %}
+        <div class="google-form-note">
+          No Google Form exists for this CBO yet. Create one here if you want a hosted intake flow in addition to the Kumbu Intake App preview above.
+        </div>
+        <p id="createIntakeFormStatus" class="google-form-status" style="display:none;"></p>
+        {% else %}
+        <div class="google-form-note">
+          Google Forms is not configured on this server. The Kumbu Intake App preview above can still capture responses and sync them into this CBO.
+        </div>
+        {% endif %}
+
+        <div class="google-form-summary-grid">
+          <div class="google-form-summary-card">
+            <span>Responses</span>
+            <strong>{{ google_form_summary.response_count }}</strong>
+            <small>Cached intake submissions in Kumbu</small>
+          </div>
+          <div class="google-form-summary-card">
+            <span>General Images</span>
+            <strong>{{ google_form_summary.general_image_count }}</strong>
+            <small>Stored from intake uploads</small>
+          </div>
+          <div class="google-form-summary-card">
+            <span>Bookkeeping Uploads</span>
+            <strong>{{ google_form_summary.bookkeeping_upload_count }}</strong>
+            <small>Files tied to bookkeeping processing</small>
+          </div>
+          <div class="google-form-summary-card">
+            <span>Digitized Documents</span>
+            <strong>{{ google_form_summary.digitized_bookkeeping_count }}</strong>
+            <small>{{ google_form_summary.last_synced_at.strftime('%Y-%m-%d %H:%M UTC') if google_form_summary.last_synced_at else 'No sync yet' }}</small>
+          </div>
+          <div class="google-form-summary-card">
+            <span>Prebuilt Accounts</span>
+            <strong>{{ google_form_summary.provisioned_account_count }}</strong>
+            <small>Provisioned from intake submissions</small>
+          </div>
+        </div>
+
+        <p id="syncGoogleFormResponsesStatus" class="google-form-status" style="display:none;"></p>
+
+        {% if google_form_summary.responses %}
+          <div class="google-form-response-list">
+            {% for item in google_form_summary.responses %}
+              <article class="google-form-response-card">
+                <div class="google-form-response-head">
+                  <div>
+                    <strong>{{ item.submitter_name or item.response.respondent_email or 'Unnamed respondent' }}</strong>
+                    <span class="google-form-response-meta">
+                      {{ item.source_label }} •
+                      {% if item.response.respondent_email and item.submitter_name and item.response.respondent_email != item.submitter_name %}
+                        {{ item.response.respondent_email }} •
+                      {% endif %}
+                      Response ID {{ item.response.response_id }}
+                      {% if item.submitted_at %} • {{ item.submitted_at.strftime('%Y-%m-%d %H:%M UTC') }}{% endif %}
+                    </span>
+                  </div>
+                  <span class="google-form-response-chip">
+                    {{ item.general_uploads|length }} general image{% if item.general_uploads|length != 1 %}s{% endif %} •
+                    {{ item.bookkeeping_uploads|length }} bookkeeping file{% if item.bookkeeping_uploads|length != 1 %}s{% endif %}
+                  </span>
                 </div>
-              {% endfor %}
-            </div>
-          </article>
-        {% endfor %}
-      </div>
-    {% else %}
-      <p class="admin-empty-state">No feedback records exist for this CBO yet.</p>
-    {% endif %}
-  </section>
+
+                {% if item.sync_error %}
+                  <p class="google-form-status google-form-status--failed">{{ item.sync_error }}</p>
+                {% endif %}
+                {% if item.provisioning_status == 'provisioned' %}
+                  <p class="google-form-status google-form-status--processed">
+                    Prebuilt account ready{% if item.provisioned_user_email %} for {{ item.provisioned_user_email }}{% endif %}{% if item.provisioned_cbo_name %} in separate CBO profile {{ item.provisioned_cbo_name }}{% endif %}.
+                  </p>
+                {% elif item.provisioning_error %}
+                  <p class="google-form-status google-form-status--failed">{{ item.provisioning_error }}</p>
+                {% endif %}
+
+                {% if item.text_answers %}
+                  <div class="google-form-answer-grid">
+                    {% for answer in item.text_answers %}
+                      <div class="google-form-answer-card">
+                        <span>{{ answer.title }}</span>
+                        <p>{{ answer.value }}</p>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+
+                {% if item.general_uploads %}
+                  <div class="google-form-upload-section">
+                    <h4>General CBO Images</h4>
+                    <div class="google-form-image-grid">
+                      {% for upload in item.general_uploads %}
+                        <article class="google-form-image-card">
+                          <div class="google-form-image-preview">
+                            {% if upload.can_preview and upload.file_url %}
+                              <img src="{{ upload.file_url }}" alt="{{ upload.original_filename }}" loading="lazy">
+                            {% else %}
+                              <i class="fas fa-image fa-2x"></i>
+                            {% endif %}
+                          </div>
+                          <div class="google-form-image-caption">
+                            <strong>{{ upload.original_filename }}</strong>
+                            <p class="google-form-status google-form-status--{{ upload.sync_status }}">
+                              {{ upload.sync_status.replace('_', ' ')|title }}
+                              {% if upload.processed_at %} • {{ upload.processed_at.strftime('%Y-%m-%d %H:%M UTC') }}{% endif %}
+                            </p>
+                            {% if upload.processing_error %}
+                              <p class="google-form-status google-form-status--failed">{{ upload.processing_error }}</p>
+                            {% endif %}
+                            {% if upload.file_url %}
+                              <a href="{{ upload.file_url }}" class="btn btn-outline btn-xs" target="_blank" rel="noopener">
+                                <i class="fas fa-up-right-from-square"></i> Open Image
+                              </a>
+                            {% endif %}
+                          </div>
+                        </article>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+
+                {% if item.bookkeeping_uploads %}
+                  <div class="google-form-upload-section">
+                    <h4>Bookkeeping Document Images</h4>
+                    <div class="google-form-bookkeeping-list">
+                      {% for upload in item.bookkeeping_uploads %}
+                        <article class="google-form-bookkeeping-card">
+                          <div class="google-form-bookkeeping-preview">
+                            {% if upload.can_preview and upload.file_url %}
+                              <img src="{{ upload.file_url }}" alt="{{ upload.original_filename }}" loading="lazy">
+                            {% elif upload.file_url %}
+                              <a href="{{ upload.file_url }}" class="btn btn-outline btn-xs" target="_blank" rel="noopener">
+                                <i class="fas fa-file-arrow-down"></i> Open Source File
+                              </a>
+                            {% else %}
+                              <i class="fas fa-file-invoice fa-2x"></i>
+                            {% endif %}
+                          </div>
+                          <div>
+                            <strong>{{ upload.original_filename }}</strong>
+                            <p class="google-form-status google-form-status--{{ upload.sync_status }}">
+                              {{ upload.sync_status.replace('_', ' ')|title }}
+                              {% if upload.processed_at %} • {{ upload.processed_at.strftime('%Y-%m-%d %H:%M UTC') }}{% endif %}
+                            </p>
+                            {% if upload.processing_error %}
+                              <p class="google-form-status google-form-status--failed">{{ upload.processing_error }}</p>
+                            {% endif %}
+
+                            {% if upload.bookkeeping %}
+                              <div class="google-form-bookkeeping-stats">
+                                <span class="google-form-stat-chip">{{ upload.bookkeeping.document_type }}</span>
+                                <span class="google-form-stat-chip">{{ upload.bookkeeping.entry_count }} row{% if upload.bookkeeping.entry_count != 1 %}s{% endif %}</span>
+                                <span class="google-form-stat-chip">{{ upload.bookkeeping.audit_issue_count }} audit flag{% if upload.bookkeeping.audit_issue_count != 1 %}s{% endif %}</span>
+                                <span class="google-form-stat-chip">Net KSh {{ '%.2f'|format(upload.bookkeeping.net_total) }}</span>
+                              </div>
+                              {% if upload.bookkeeping.document_date %}
+                                <p class="google-form-status">Document date: {{ upload.bookkeeping.document_date }}</p>
+                              {% endif %}
+                              {% if upload.bookkeeping.summary_text %}
+                                <p>{{ upload.bookkeeping.summary_text }}</p>
+                              {% endif %}
+                              {% if upload.file_url %}
+                                <a href="{{ upload.file_url }}" class="btn btn-outline btn-xs" target="_blank" rel="noopener">
+                                  <i class="fas fa-up-right-from-square"></i> Open Source File
+                                </a>
+                              {% endif %}
+                            {% else %}
+                              <p class="google-form-status">Digitized bookkeeping output will appear here after a successful sync.</p>
+                            {% endif %}
+                          </div>
+                        </article>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+
+                {% if item.other_uploads %}
+                  <div class="google-form-upload-section">
+                    <h4>Other Uploaded Files</h4>
+                    <div class="google-form-bookkeeping-list">
+                      {% for upload in item.other_uploads %}
+                        <article class="google-form-bookkeeping-card">
+                          <div class="google-form-bookkeeping-preview">
+                            <i class="fas fa-file fa-2x"></i>
+                          </div>
+                          <div>
+                            <strong>{{ upload.original_filename }}</strong>
+                            <p class="google-form-status google-form-status--{{ upload.sync_status }}">{{ upload.sync_status.replace('_', ' ')|title }}</p>
+                            {% if upload.processing_error %}
+                              <p class="google-form-status google-form-status--failed">{{ upload.processing_error }}</p>
+                            {% endif %}
+                          </div>
+                        </article>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="admin-empty-state">No intake responses have been captured for this CBO yet.</p>
+        {% endif %}
+      {% else %}
+        <p class="admin-empty-state">The intake app becomes shareable here once a public tunnel URL is available.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <div class="activity-panel" data-activity-panel="bookkeeping-activity" hidden>
+    <div class="activity-embed-shell">
+      <iframe
+        class="activity-embed-frame"
+        data-activity-iframe
+        data-src="{{ url_for('main.cbo_profile', slug=cbo.slug, isolated='bookkeeping-live', embedded='1') }}"
+        title="Bookkeeping activity for {{ cbo.name }}"
+        loading="lazy"></iframe>
+    </div>
+  </div>
+
+  <div class="activity-panel" data-activity-panel="digitized-documents" hidden>
+    <div class="activity-embed-shell">
+      <iframe
+        class="activity-embed-frame"
+        data-activity-iframe
+        data-src="{{ url_for('main.cbo_profile', slug=cbo.slug, isolated='bookkeeping-digitized', embedded='1') }}"
+        title="Digitized documents for {{ cbo.name }}"
+        loading="lazy"></iframe>
+    </div>
+  </div>
+
+  <div class="activity-panel" data-activity-panel="cbo-profile" hidden>
+    <div class="activity-embed-shell">
+      <iframe
+        class="activity-embed-frame"
+        data-activity-iframe
+        data-src="{{ url_for('main.cbo_profile', slug=cbo.slug, isolated='profile', embedded='1') }}"
+        title="Profile for {{ cbo.name }}"
+        loading="lazy"></iframe>
+    </div>
+  </div>
 </div>
+<script>
+  (function() {
+    var tabs = Array.from(document.querySelectorAll('[data-activity-tab]'));
+    var panels = Array.from(document.querySelectorAll('[data-activity-panel]'));
+    var frames = Array.from(document.querySelectorAll('[data-activity-iframe]'));
+
+    function resizeFrame(frame) {
+      if (!frame || !frame.contentWindow) {
+        return;
+      }
+      try {
+        var doc = frame.contentWindow.document;
+        var nextHeight = Math.max(
+          doc && doc.body ? doc.body.scrollHeight : 0,
+          doc && doc.documentElement ? doc.documentElement.scrollHeight : 0,
+          680
+        );
+        frame.style.height = String(nextHeight) + 'px';
+      } catch (error) {
+        /* Ignore cross-frame sizing issues during initial load. */
+      }
+    }
+
+    function ensureEmbeddedPanelLoaded(name) {
+      var panel = panels.find(function(candidate) {
+        return candidate.dataset.activityPanel === name;
+      });
+      if (!panel) {
+        return;
+      }
+      var frame = panel.querySelector('[data-activity-iframe]');
+      if (!frame) {
+        return;
+      }
+      if (!frame.getAttribute('src')) {
+        var src = frame.dataset.src || '';
+        if (src) {
+          frame.setAttribute('src', src);
+        }
+        return;
+      }
+      window.setTimeout(function() {
+        resizeFrame(frame);
+      }, 60);
+    }
+
+    function activateTab(name) {
+      tabs.forEach(function(tab) {
+        var active = tab.dataset.activityTab === name;
+        tab.classList.toggle('is-active', active);
+      });
+      panels.forEach(function(panel) {
+        panel.hidden = panel.dataset.activityPanel !== name;
+      });
+      ensureEmbeddedPanelLoaded(name);
+    }
+
+    frames.forEach(function(frame) {
+      frame.addEventListener('load', function() {
+        resizeFrame(frame);
+        window.setTimeout(function() { resizeFrame(frame); }, 250);
+        window.setTimeout(function() { resizeFrame(frame); }, 1000);
+      });
+    });
+
+    window.addEventListener('message', function(event) {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+      var data = event.data || {};
+      if (data.type !== 'kumbu-embed-resize') {
+        return;
+      }
+      frames.forEach(function(frame) {
+        if (frame.contentWindow !== event.source) {
+          return;
+        }
+        var nextHeight = Math.max(Number(data.height) || 0, 680);
+        frame.style.height = String(nextHeight) + 'px';
+      });
+    });
+
+    tabs.forEach(function(tab) {
+      tab.addEventListener('click', function() {
+        var name = tab.dataset.activityTab;
+        activateTab(name);
+        window.location.hash = name;
+      });
+    });
+
+    var initialTab = (window.location.hash || '').replace('#', '');
+    if (!tabs.some(function(tab) { return tab.dataset.activityTab === initialTab; })) {
+      initialTab = 'sms-feedback';
+    }
+    activateTab(initialTab || 'sms-feedback');
+  })();
+
+  document.querySelectorAll('[data-copy-text]').forEach(function(btn) {
+    btn.addEventListener('click', async function() {
+      var text = btn.dataset.copyText || '';
+      var orig = btn.innerHTML;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          window.prompt('Copy link:', text);
+        }
+        btn.innerHTML = '<i class="fas fa-check"></i> Copied';
+        setTimeout(function() { btn.innerHTML = orig; }, 2000);
+      } catch (e) {
+        window.prompt('Copy link:', text);
+      }
+    });
+  });
+
+  var syncBtn = document.getElementById('syncGoogleFormResponsesBtn');
+  if (syncBtn) {
+    syncBtn.addEventListener('click', async function() {
+      var status = document.getElementById('syncGoogleFormResponsesStatus');
+      syncBtn.disabled = true;
+      syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing…';
+      status.style.display = '';
+      status.className = 'google-form-status';
+      status.textContent = 'Fetching responses and processing uploads…';
+      try {
+        var resp = await fetch('{{ url_for("main.sync_google_form_responses", cbo_id=cbo.id) }}', { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} });
+        var data = await resp.json();
+        if (data.error) {
+          status.className = 'google-form-status google-form-status--failed';
+          status.textContent = 'Error: ' + data.error;
+          syncBtn.disabled = false;
+          syncBtn.innerHTML = '<i class="fas fa-rotate"></i> Sync Google Form';
+          return;
+        }
+
+        var failureText = (data.failures || []).length ? (' Some files need review: ' + data.failures.join(' ')) : '';
+        status.className = 'google-form-status' + ((data.failures || []).length ? ' google-form-status--pending' : ' google-form-status--processed');
+        status.textContent = 'Synced ' + (data.responses_synced || 0) + ' response(s), cached ' + (data.processed_general_images || 0) + ' image(s), and digitized ' + (data.processed_bookkeeping_documents || 0) + ' bookkeeping file(s).' + failureText;
+        window.location.hash = 'google-form-responses';
+        window.location.reload();
+      } catch (e) {
+        status.className = 'google-form-status google-form-status--failed';
+        status.textContent = 'Request failed. Please try again.';
+        syncBtn.disabled = false;
+        syncBtn.innerHTML = '<i class="fas fa-rotate"></i> Sync Google Form';
+      }
+    });
+  }
+
+  var createBtn = document.getElementById('createIntakeFormBtn');
+  if (createBtn) {
+    createBtn.addEventListener('click', async function() {
+      var status = document.getElementById('createIntakeFormStatus');
+      createBtn.disabled = true;
+      createBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating…';
+      status.style.display = '';
+      status.textContent = 'Creating form, please wait…';
+      try {
+        var resp = await fetch('{{ url_for("main.create_intake_form", cbo_id=cbo.id) }}', { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} });
+        var data = await resp.json();
+        if (data.error) {
+          status.textContent = 'Error: ' + data.error;
+          createBtn.disabled = false;
+          createBtn.innerHTML = '<i class="fas fa-plus"></i> Create Google Form';
+        } else {
+          status.textContent = 'Form created! Reloading…';
+          window.location.reload();
+        }
+      } catch(e) {
+        status.textContent = 'Request failed. Please try again.';
+        createBtn.disabled = false;
+        createBtn.innerHTML = '<i class="fas fa-plus"></i> Create Google Form';
+      }
+    });
+  }
+</script>
 {% endblock %}

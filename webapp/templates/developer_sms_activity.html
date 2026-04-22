@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}SMS Activity — Kumbu Connect{% endblock %}
+
+{% block content %}
+<div class="container admin-page">
+  <section class="admin-hero">
+    <div>
+      <h1><i class="fas fa-comment-sms"></i> SMS Activity</h1>
+      <p>Choose a CBO to open its QR codes, subscriber state, response history, intake data, and local simulator.</p>
+      <p class="admin-hero-note">Showing CBOs with active linked users, live SMS activity, or intake submissions from the last {{ recent_intake_days }} days.</p>
+    </div>
+    {% if add_cbo_intake %}
+      <div class="admin-hero-actions">
+        <button type="button" class="btn btn-primary btn-lg sms-activity-add-cbo-trigger" id="openAddCboModal">Add CBO</button>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="admin-stats-grid">
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Active CBOs</span>
+      <strong class="admin-stat-value">{{ totals.cbos }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Active CBO Users</span>
+      <strong class="admin-stat-value">{{ totals.active_users }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">SMS Responses</span>
+      <strong class="admin-stat-value">{{ totals.responses }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Intake Responses</span>
+      <strong class="admin-stat-value">{{ totals.intake_responses }}</strong>
+    </div>
+  </section>
+
+  <section class="admin-panel">
+    <div class="admin-panel-header admin-panel-header--stacked">
+      <h2><i class="fas fa-building"></i> CBO Activity</h2>
+      <p class="panel-help-text">Open any card to manage that CBO’s keyword QR codes, transcripts, intake responses, and linked document uploads.</p>
+    </div>
+
+    {% if cbo_cards %}
+      <div class="sms-activity-hub-grid">
+        {% for item in cbo_cards %}
+          <article class="sms-activity-hub-card{% if item.is_featured %} is-featured{% endif %}">
+            <div class="sms-activity-hub-card__top">
+              <div>
+                <p class="sms-activity-hub-card__eyebrow">SMS Activity</p>
+                <h3>{{ item.cbo.name }}</h3>
+                <p class="sms-activity-hub-card__keyword">Keyword {{ item.feedback.keyword }}</p>
+              </div>
+              {% if item.is_featured %}
+                <span class="sms-activity-hub-pill sms-activity-hub-pill--featured">Last Opened</span>
+              {% endif %}
+            </div>
+
+            <div class="sms-activity-hub-flags">
+              {% if item.active_user_count %}
+                <span class="sms-activity-hub-pill sms-activity-hub-pill--active">{{ item.active_user_count }} active user{{ 's' if item.active_user_count != 1 else '' }}</span>
+              {% endif %}
+              {% if item.has_recent_intake %}
+                <span class="sms-activity-hub-pill sms-activity-hub-pill--intake">{{ item.intake.recent_response_count }} recent intake{{ 's' if item.intake.recent_response_count != 1 else '' }}</span>
+              {% endif %}
+              <span class="sms-activity-hub-pill {% if item.cbo.community_feedback_enabled %}sms-activity-hub-pill--sms{% else %}sms-activity-hub-pill--muted{% endif %}">{{ 'SMS enabled' if item.cbo.community_feedback_enabled else 'SMS paused' }}</span>
+            </div>
+
+            {% if item.last_activity_at %}
+              <p class="sms-activity-hub-card__activity">Last activity {{ item.last_activity_at.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+            {% else %}
+              <p class="sms-activity-hub-card__activity">Waiting for the first SMS or intake submission.</p>
+            {% endif %}
+
+            <div class="sms-activity-hub-card__actions">
+              <a href="{{ url_for('main.community_feedback_cbo_detail', cbo_id=item.cbo.id) }}" class="btn btn-primary btn-sm">Open CBO</a>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="admin-empty-state">No CBOs currently match the active-user or recent-intake activity filter.</p>
+    {% endif %}
+  </section>
+</div>
+
+{% if add_cbo_intake and add_cbo_source %}
+  <div class="map-modal sms-activity-intake-modal" id="addCboModal" hidden>
+    <div class="map-modal__backdrop" data-close-add-cbo-modal></div>
+    <div class="map-modal__dialog sms-activity-intake-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="addCboModalTitle">
+      <button type="button" class="map-modal__close" data-close-add-cbo-modal aria-label="Close Add CBO dialog">
+        <i class="fas fa-times"></i>
+      </button>
+      <div class="map-modal__header sms-activity-intake-modal__header">
+        <span class="map-modal__eyebrow">Add CBO</span>
+        <h2 id="addCboModalTitle">New CBO Intake</h2>
+        <p>Use the intake flow below to onboard a new CBO. New submissions will be provisioned through {{ add_cbo_source.name }} and then appear in this activity list once they are active or recently submitted.</p>
+      </div>
+      <div class="map-modal__body sms-activity-intake-modal__body">
+        <div class="sms-activity-add-cbo-grid">
+          <article class="sms-activity-add-cbo-card">
+            <span class="sms-activity-add-cbo-card__eyebrow">Offline Intake App</span>
+            <h3>Mobile-first Add CBO flow</h3>
+            <p>Use the intake app to capture the full CBO form on one device, including uploads, with offline sync support.</p>
+            {% if add_cbo_intake.offline.qr_svg %}
+              <div class="sms-activity-add-cbo-card__qr">{{ add_cbo_intake.offline.qr_svg|safe }}</div>
+            {% endif %}
+            <div class="sms-activity-add-cbo-card__actions">
+              <a href="{{ add_cbo_intake.offline.preview_url }}" class="btn btn-primary btn-sm" target="_blank" rel="noopener">Open Intake App</a>
+              {% if add_cbo_intake.offline.url %}
+                <button type="button" class="btn btn-outline btn-sm" data-copy-text="{{ add_cbo_intake.offline.url }}">Copy Public Link</button>
+              {% else %}
+                <button type="button" class="btn btn-outline btn-sm" data-copy-text="{{ add_cbo_intake.offline.preview_url }}">Copy Preview Link</button>
+              {% endif %}
+            </div>
+            {% if add_cbo_intake.offline.availability_message %}
+              <p class="sms-activity-add-cbo-card__note">{{ add_cbo_intake.offline.availability_message }}</p>
+            {% endif %}
+          </article>
+
+          <article class="sms-activity-add-cbo-card">
+            <span class="sms-activity-add-cbo-card__eyebrow">Hosted Intake Form</span>
+            <h3>Google Form option</h3>
+            {% if add_cbo_intake.form_url %}
+              <p>Use the hosted Google Form when you want a browser-only intake link instead of the offline app.</p>
+              <div class="sms-activity-add-cbo-card__actions">
+                <a href="{{ add_cbo_intake.form_url }}" class="btn btn-primary btn-sm" target="_blank" rel="noopener">Open Google Form</a>
+                <button type="button" class="btn btn-outline btn-sm" data-copy-text="{{ add_cbo_intake.form_url }}">Copy Form Link</button>
+              </div>
+              {% if add_cbo_intake.form_edit_url %}
+                <div class="sms-activity-add-cbo-card__actions">
+                  <a href="{{ add_cbo_intake.form_edit_url }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">Edit Form</a>
+                </div>
+              {% endif %}
+            {% else %}
+              <p>No Google Form is configured on the current onboarding source CBO yet. The offline intake app above is still available.</p>
+            {% endif %}
+          </article>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const addCboModal = document.getElementById('addCboModal');
+const openAddCboModalButton = document.getElementById('openAddCboModal');
+
+function openAddCboModal() {
+  if (!addCboModal) {
+    return;
+  }
+  addCboModal.hidden = false;
+  document.body.classList.add('modal-open');
+}
+
+function closeAddCboModal() {
+  if (!addCboModal) {
+    return;
+  }
+  addCboModal.hidden = true;
+  document.body.classList.remove('modal-open');
+}
+
+if (openAddCboModalButton) {
+  openAddCboModalButton.addEventListener('click', openAddCboModal);
+}
+
+document.querySelectorAll('[data-close-add-cbo-modal]').forEach(button => {
+  button.addEventListener('click', closeAddCboModal);
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && addCboModal && !addCboModal.hidden) {
+    closeAddCboModal();
+  }
+});
+</script>
+{% endblock %}
