@@ -1,6 +1,7 @@
 """
 Clear and re-upload all CBO data to KoboToolbox with proper identifiers.
 """
+import os
 import sys
 sys.path.append('.')
 
@@ -24,4 +25,5 @@ print("\n" + "=" * 80)
 print("✅ DATA UPLOAD COMPLETE!")
 print("=" * 80)
 print("\nNow you can sync each CBO and they will get their proper filtered data.")
-print("Visit http://127.0.0.1:5000 and sync each CBO profile.")
+app_port = os.environ.get('APP_PORT', os.environ.get('PORT', '8000'))
+print(f"Visit http://127.0.0.1:{app_port} and sync each CBO profile.")

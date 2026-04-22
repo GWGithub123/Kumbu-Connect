@@ -9,6 +9,7 @@ from twilio.request_validator import RequestValidator
 from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
 
+from .community_feedback_keywords import get_cbo_keyword, normalize_sms_keyword
 from .firestore_service import sync_feedback_to_firestore, sync_subscriber_to_firestore
 from .models import db, CBO, CommunityFeedback, CommunitySubscriber
 
@@ -52,7 +53,7 @@ def handle_inbound_sms(from_number: str, body: str) -> str:
         subscriber = CommunitySubscriber(
             cbo_id=cbo.id,
             phone_number=phone_number,
-            signup_keyword=normalize_keyword(cbo.sms_keyword or cbo.cbo_identifier or cbo.slug),
+            signup_keyword=get_cbo_keyword(cbo),
             consent_received_at=now,
             last_response_at=now,
             status='active',
@@ -61,7 +62,7 @@ def handle_inbound_sms(from_number: str, body: str) -> str:
         db.session.flush()
     else:
         subscriber.status = 'active'
-        subscriber.signup_keyword = normalize_keyword(cbo.sms_keyword or cbo.cbo_identifier or cbo.slug)
+        subscriber.signup_keyword = get_cbo_keyword(cbo)
         subscriber.consent_received_at = subscriber.consent_received_at or now
         subscriber.last_response_at = now
 
@@ -147,7 +148,7 @@ def normalize_phone_number(value: str) -> str:
 
 
 def normalize_keyword(value: str) -> str:
-    return re.sub(r'[^A-Z0-9]+', '', (value or '').upper())
+    return normalize_sms_keyword(value)
 
 
 def _handle_opt_out(phone_number: str) -> str:
@@ -166,13 +167,7 @@ def _find_cbo_for_keyword(message: str) -> CBO | None:
         return None
 
     for cbo in CBO.query.filter_by(community_feedback_enabled=True).all():
-        candidates = {
-            normalize_keyword(cbo.sms_keyword),
-            normalize_keyword(cbo.cbo_identifier),
-            normalize_keyword(cbo.slug),
-            normalize_keyword(cbo.name),
-        }
-        if normalized in {candidate for candidate in candidates if candidate}:
+        if normalized == get_cbo_keyword(cbo):
             return cbo
     return None
 
@@ -283,7 +278,7 @@ def _parse_optional_count(message: str):
 
 
 def _rating_prompt(cbo: CBO, onboarding: bool) -> str:
-    keyword = cbo.sms_keyword or cbo.cbo_identifier or cbo.slug.upper()
+    keyword = get_cbo_keyword(cbo)
     custom_prompt = (cbo.community_prompt or '').strip()
     if custom_prompt:
         return custom_prompt
@@ -295,7 +290,7 @@ def _rating_prompt(cbo: CBO, onboarding: bool) -> str:
 def _keyword_help_text() -> str:
     active_keywords = []
     for cbo in CBO.query.filter_by(community_feedback_enabled=True).limit(5).all():
-        keyword = cbo.sms_keyword or cbo.cbo_identifier or cbo.slug.upper()
+        keyword = get_cbo_keyword(cbo)
         if keyword:
             active_keywords.append(keyword)
     if active_keywords:

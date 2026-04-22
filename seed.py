@@ -6,10 +6,37 @@ Run once:
     python seed.py
 """
 import json
+from pathlib import Path
 from webapp import create_app
 from webapp.models import db, User, CBO
 
 app = create_app()
+
+
+def _load_kobo_asset_ids() -> dict[str, str]:
+    form_ids_path = Path(__file__).with_name('form_ids.json')
+    if not form_ids_path.exists():
+        return {}
+
+    try:
+        payload = json.loads(form_ids_path.read_text())
+    except Exception:
+        return {}
+
+    asset_ids: dict[str, str] = {}
+    for item in payload:
+        slug = str(item.get('slug') or '').strip().lower()
+        asset_id = str(item.get('kobo_asset_id') or '').strip()
+        if slug and asset_id:
+            asset_ids[slug] = asset_id
+    return asset_ids
+
+
+KOBO_ASSET_IDS = _load_kobo_asset_ids()
+
+
+def _seed_asset_id(slug: str, fallback: str) -> str:
+    return KOBO_ASSET_IDS.get(slug, fallback)
 
 with app.app_context():
     # Avoid duplicates
@@ -21,7 +48,7 @@ with app.app_context():
     cbo = CBO(
         name="Busia Community Tool Hub",
         slug="busia-community-tool-hub",
-        kobo_asset_id="aJ7GEDZPU3dbM4KAEqUBKW",  # Tool sharing form
+        kobo_asset_id=_seed_asset_id("busia-community-tool-hub", "aJ7GEDZPU3dbM4KAEqUBKW"),
         cbo_identifier="tools",
         location="Busia County, Kenya",
         county_region="Busia County",
@@ -38,7 +65,7 @@ with app.app_context():
     cbo2 = CBO(
         name="Kakamega Farm Collective",
         slug="kakamega-farm-collective",
-        kobo_asset_id="aJ7GEDZPU3dbM4KAEqUBKW",  # Tool sharing form (same as Busia)
+        kobo_asset_id=_seed_asset_id("kakamega-farm-collective", "aJ7GEDZPU3dbM4KAEqUBKW"),
         cbo_identifier="tools",
         location="Kakamega County, Kenya",
         county_region="Kakamega County",
@@ -55,7 +82,7 @@ with app.app_context():
     cbo3 = CBO(
         name="Bright Futures Education CBO",
         slug="bright-futures-education",
-        kobo_asset_id="aJ7GEDZPU3dbM4KAEqUBKW",  # TODO: Replace with education form ID
+        kobo_asset_id=_seed_asset_id("bright-futures-education", "aJ7GEDZPU3dbM4KAEqUBKW"),
         cbo_identifier="education",
         location="Nairobi County, Kenya",
         county_region="Nairobi County",
@@ -72,7 +99,7 @@ with app.app_context():
     cbo4 = CBO(
         name="Health For All CBO",
         slug="health-for-all",
-        kobo_asset_id="aJ7GEDZPU3dbM4KAEqUBKW",  # TODO: Replace with healthcare form ID
+        kobo_asset_id=_seed_asset_id("health-for-all", "aJ7GEDZPU3dbM4KAEqUBKW"),
         cbo_identifier="healthcare",
         location="Kisumu County, Kenya",
         county_region="Kisumu County",
@@ -89,7 +116,7 @@ with app.app_context():
     cbo5 = CBO(
         name="Green Harvest Agriculture CBO",
         slug="green-harvest-agriculture",
-        kobo_asset_id="aJ7GEDZPU3dbM4KAEqUBKW",  # TODO: Replace with agriculture form ID
+        kobo_asset_id=_seed_asset_id("green-harvest-agriculture", "aJ7GEDZPU3dbM4KAEqUBKW"),
         cbo_identifier="agriculture",
         location="Nakuru County, Kenya",
         county_region="Nakuru County",
@@ -106,7 +133,7 @@ with app.app_context():
     cbo6 = CBO(
         name="Clean Water Initiative CBO",
         slug="clean-water-initiative",
-        kobo_asset_id="aJ7GEDZPU3dbM4KAEqUBKW",  # TODO: Replace with water/sanitation form ID
+        kobo_asset_id=_seed_asset_id("clean-water-initiative", "aJ7GEDZPU3dbM4KAEqUBKW"),
         cbo_identifier="water",
         location="Machakos County, Kenya",
         county_region="Machakos County",

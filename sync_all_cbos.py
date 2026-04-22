@@ -114,8 +114,9 @@ def main():
         print(f"✅ Successfully synced: {successful}/{len(cbos)}")
         if failed > 0:
             print(f"❌ Failed: {failed}")
+        app_port = os.environ.get('APP_PORT', os.environ.get('PORT', '8000'))
         print("\n🎉 Your marketplace is now populated with diverse CBO profiles!")
-        print("   Visit http://127.0.0.1:5000 to view the marketplace")
+        print(f"   Visit http://127.0.0.1:{app_port} to view the marketplace")
         print("=" * 70)
 
 
