@@ -1,0 +1,15 @@
+.gcloudignore
+.git
+.gitignore
+.venv
+__pycache__
+.pytest_cache
+.mypy_cache
+.DS_Store
+.copilot_tmp
+.env
+instance
+webapp/instance
+*.pyc
+*.pyo
+*.pyd
