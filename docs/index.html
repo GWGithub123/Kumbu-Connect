@@ -3,18 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SMS Proof of Consent</title>
+  <title>Kumbu Connect SMS Consent Proof</title>
   <style>
     :root {
-      --bg: #f5f1e8;
-      --surface: #fffdfa;
-      --ink: #1f2933;
-      --muted: #5b6572;
-      --line: #d8d1c2;
-      --accent: #0f766e;
-      --accent-soft: #dff4ef;
-      --warn: #8a5a00;
-      --warn-bg: #fff4d6;
+      --bg: #f6f1e6;
+      --surface: rgba(255, 252, 247, 0.96);
+      --surface-strong: #ffffff;
+      --ink: #192431;
+      --muted: #5c6774;
+      --line: rgba(25, 36, 49, 0.12);
+      --accent: #0a7a73;
+      --accent-soft: rgba(10, 122, 115, 0.12);
+      --accent-deep: #0f4746;
+      --warn: #8c5d09;
+      --warn-soft: #fff2cf;
+      --shadow: 0 24px 70px rgba(25, 36, 49, 0.1);
     }
 
     * {
@@ -25,92 +28,189 @@
       margin: 0;
       font-family: Georgia, "Times New Roman", serif;
       color: var(--ink);
-      background:
-        radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 28%),
-        linear-gradient(180deg, #f8f4ec 0%, var(--bg) 100%);
       line-height: 1.6;
+      background:
+        radial-gradient(circle at top left, rgba(10, 122, 115, 0.1), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(179, 115, 22, 0.08), transparent 24%),
+        linear-gradient(180deg, #f8f5ed 0%, var(--bg) 100%);
+    }
+
+    a {
+      color: var(--accent-deep);
     }
 
     .page {
-      max-width: 920px;
+      width: min(980px, calc(100vw - 32px));
       margin: 0 auto;
-      padding: 48px 20px 80px;
+      padding: 36px 0 72px;
     }
 
     .card {
       background: var(--surface);
-      border: 1px solid rgba(31, 41, 51, 0.08);
-      border-radius: 20px;
-      box-shadow: 0 18px 50px rgba(31, 41, 51, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.45);
+      border-radius: 28px;
+      box-shadow: var(--shadow);
       overflow: hidden;
+      backdrop-filter: blur(10px);
     }
 
     header {
-      padding: 40px 36px 28px;
+      padding: 40px 38px 28px;
       border-bottom: 1px solid var(--line);
-      background: linear-gradient(135deg, rgba(15, 118, 110, 0.1), rgba(255, 255, 255, 0));
+      background:
+        linear-gradient(135deg, rgba(10, 122, 115, 0.12), rgba(255, 255, 255, 0)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.3));
+    }
+
+    .eyebrow,
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
     }
 
     .eyebrow {
-      display: inline-block;
-      padding: 6px 12px;
-      border-radius: 999px;
       background: var(--accent-soft);
-      color: var(--accent);
-      font-size: 0.82rem;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      font-weight: 700;
+      color: var(--accent-deep);
     }
 
-    h1, h2, h3 {
-      line-height: 1.2;
+    .chip {
+      background: rgba(25, 36, 49, 0.05);
+      color: var(--muted);
+    }
+
+    h1,
+    h2,
+    h3 {
       margin: 0;
+      line-height: 1.15;
+      color: var(--ink);
     }
 
     h1 {
       margin-top: 16px;
-      font-size: clamp(2rem, 5vw, 3.4rem);
+      font-size: clamp(2.15rem, 4.8vw, 3.7rem);
+      letter-spacing: -0.03em;
+      max-width: 13ch;
+    }
+
+    h2 {
+      font-size: clamp(1.4rem, 2.8vw, 2rem);
+      letter-spacing: -0.02em;
+    }
+
+    h3 {
+      font-size: 1.05rem;
+    }
+
+    p {
+      margin: 0;
     }
 
     .subtitle {
-      max-width: 720px;
+      max-width: 730px;
       margin-top: 18px;
-      font-size: 1.08rem;
       color: var(--muted);
+      font-size: 1.05rem;
+    }
+
+    .top-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
     }
 
     .notice {
-      margin-top: 24px;
+      margin-top: 22px;
       padding: 16px 18px;
-      border-radius: 14px;
-      background: var(--warn-bg);
-      border: 1px solid rgba(138, 90, 0, 0.18);
+      border-radius: 16px;
+      border: 1px solid rgba(140, 93, 9, 0.18);
+      background: var(--warn-soft);
       color: var(--warn);
-      font-size: 0.98rem;
+      font-size: 0.96rem;
+    }
+
+    .evidence-links {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .evidence-link {
+      display: block;
+      padding: 15px 16px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: var(--surface-strong);
+      text-decoration: none;
+    }
+
+    .evidence-link strong {
+      display: block;
+      color: var(--ink);
+    }
+
+    .evidence-link span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 0.95rem;
+      word-break: break-word;
+    }
+
+    .proof-preview {
+      margin-top: 18px;
+      padding: 20px 22px;
+      border-radius: 22px;
+      border: 1px solid rgba(10, 122, 115, 0.16);
+      background:
+        linear-gradient(180deg, rgba(10, 122, 115, 0.08), rgba(255, 255, 255, 0.96));
+    }
+
+    .proof-preview h3 {
+      margin-bottom: 8px;
+    }
+
+    .proof-preview p + p {
+      margin-top: 10px;
+    }
+
+    .proof-preview-cta {
+      margin-top: 14px;
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: #1e2941;
+      color: #f8fafc;
+    }
+
+    .proof-preview-cta strong {
+      display: block;
+      color: #f8fafc;
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+    }
+
+    .proof-preview-cta span {
+      display: block;
+      margin-top: 8px;
+      color: rgba(248, 250, 252, 0.82);
     }
 
     main {
-      padding: 28px 36px 40px;
+      padding: 30px 38px 42px;
     }
 
     section + section {
       margin-top: 34px;
       padding-top: 28px;
       border-top: 1px solid var(--line);
-    }
-
-    p {
-      margin: 12px 0 0;
-    }
-
-    ul, ol {
-      margin: 14px 0 0;
-      padding-left: 22px;
-    }
-
-    li + li {
-      margin-top: 8px;
     }
 
     .grid {
@@ -120,64 +220,160 @@
       margin-top: 18px;
     }
 
-    .field {
-      padding: 14px 16px;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: #fff;
+    .stack {
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
     }
 
-    .field strong {
+    .field,
+    .step,
+    .panel {
+      padding: 16px 18px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: var(--surface-strong);
+    }
+
+    .field strong,
+    .panel strong {
       display: block;
-      font-size: 0.86rem;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
-      color: var(--muted);
       margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .field span,
+    .panel p,
+    .step p {
+      color: var(--ink);
+    }
+
+    .step {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: auto 1fr;
+      align-items: start;
+    }
+
+    .step-index {
+      width: 34px;
+      height: 34px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent-deep);
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    .step-copy {
+      display: grid;
+      gap: 6px;
+      padding-top: 2px;
+    }
+
+    .step-copy strong {
+      font-size: 1rem;
+    }
+
+    .disclosure-card,
+    .message-card {
+      margin-top: 18px;
+      padding: 20px 22px;
+      border-radius: 20px;
+      border: 1px solid rgba(10, 122, 115, 0.18);
+      background:
+        linear-gradient(180deg, rgba(10, 122, 115, 0.08), rgba(255, 255, 255, 0.88));
+    }
+
+    .disclosure-card h3,
+    .message-card h3 {
+      margin-bottom: 10px;
     }
 
     blockquote {
-      margin: 18px 0 0;
+      margin: 0;
       padding: 18px 20px;
       border-left: 4px solid var(--accent);
-      border-radius: 0 14px 14px 0;
-      background: rgba(15, 118, 110, 0.06);
+      border-radius: 0 16px 16px 0;
+      background: rgba(10, 122, 115, 0.08);
       font-size: 1.02rem;
+      color: var(--ink);
     }
 
-    .sample {
-      margin-top: 18px;
-      padding: 18px 20px;
-      border-radius: 14px;
-      background: #18253d;
+    .message-card {
+      background: #1e2941;
+      border-color: rgba(255, 255, 255, 0.08);
       color: #f8fafc;
+    }
+
+    .message-card h3,
+    .message-card p {
+      color: #f8fafc;
+    }
+
+    .message {
+      margin-top: 12px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.07);
       font-family: "Courier New", Courier, monospace;
       white-space: pre-wrap;
+      line-height: 1.55;
     }
 
-    .small {
+    ul {
+      margin: 14px 0 0;
+      padding-left: 22px;
+    }
+
+    li + li {
+      margin-top: 8px;
+    }
+
+    .fine-print {
+      margin-top: 10px;
       color: var(--muted);
-      font-size: 0.94rem;
+      font-size: 0.93rem;
     }
 
     footer {
-      padding: 22px 36px 34px;
+      padding: 22px 38px 34px;
       border-top: 1px solid var(--line);
+      background: rgba(25, 36, 49, 0.03);
       color: var(--muted);
       font-size: 0.94rem;
-      background: rgba(31, 41, 51, 0.02);
     }
 
-    @media (max-width: 720px) {
+    @media (max-width: 760px) {
+      .page {
+        width: min(100vw - 18px, 100%);
+        padding: 10px 0 28px;
+      }
+
       header,
       main,
       footer {
-        padding-left: 20px;
-        padding-right: 20px;
+        padding-left: 18px;
+        padding-right: 18px;
       }
 
       .grid {
         grid-template-columns: 1fr;
+      }
+
+      .step {
+        grid-template-columns: 1fr;
+      }
+
+      .step-index {
+        width: 30px;
+        height: 30px;
       }
     }
 
@@ -198,14 +394,20 @@
     <article class="card">
       <header>
         <span class="eyebrow">Twilio Compliance Support</span>
-        <h1>Proof of Consumer Consent for SMS Messaging</h1>
+        <h1>Proof of Consumer Consent for Kumbu Connect SMS Messaging</h1>
         <p class="subtitle">
-          This page documents how <strong>[Organization Name]</strong> collects and records consumer consent
-          before sending SMS messages related to <strong>[Program Name]</strong>.
+          This page documents the opt-in workflow used by Kumbu Connect for its Community Feedback SMS Program on
+          toll-free number <strong>(833) 632-7146</strong>. The consumer opt-in method is a
+          <strong>consumer-initiated text message</strong> using a participating CBO keyword.
         </p>
+        <div class="top-meta">
+          <span class="chip">Program: Community Feedback SMS</span>
+          <span class="chip">Opt-In Type: Via Text</span>
+          <span class="chip">Message Types: Surveys, follow-up questions, check-ins</span>
+        </div>
         <div class="notice">
-          Replace all bracketed placeholders before publishing. Twilio reviewers expect the organization name,
-          website URL, sending phone number, and exact opt-in language to match your real workflow.
+          The consumer must take a clear affirmative action to opt in. Consent is not bundled into a privacy policy,
+          terms of service, or any unrelated acceptance flow.
         </div>
       </header>
 
@@ -215,87 +417,191 @@
           <div class="grid">
             <div class="field">
               <strong>Organization</strong>
-              <span>[Organization Name]</span>
+              <span>Kumbu Connect</span>
             </div>
             <div class="field">
-              <strong>Program</strong>
-              <span>[Program Name]</span>
+              <strong>Program Name</strong>
+              <span>Community Feedback SMS Program</span>
             </div>
             <div class="field">
               <strong>Public Website</strong>
-              <span>[https://your-site.example]</span>
+              <span>https://kumbuconnect-lang.github.io/Twilio-User-Consent/</span>
             </div>
             <div class="field">
               <strong>Sending Number</strong>
-              <span>[Twilio Phone Number or Toll-Free Number]</span>
-            </div>
-            <div class="field">
-              <strong>Message Purpose</strong>
-              <span>[Example: surveys, updates, reminders, support alerts]</span>
+              <span>(833) 632-7146</span>
             </div>
             <div class="field">
               <strong>Opt-In Method</strong>
-              <span>[Example: website checkbox and form submission]</span>
+              <span>Consumer texts a participating CBO keyword to the toll-free number</span>
+            </div>
+            <div class="field">
+              <strong>Typical Message Volume</strong>
+              <span>2 to 5 messages during a feedback session, with optional future check-ins</span>
             </div>
           </div>
         </section>
 
         <section>
           <h2>How Consent Is Collected</h2>
-          <ol>
-            <li>The consumer visits <strong>[signup page URL]</strong>.</li>
-            <li>The consumer enters their mobile phone number into the signup form.</li>
-            <li>The consumer must actively check an unchecked consent box before submission.</li>
-            <li>The form displays the SMS disclosure shown below at the point of collection.</li>
-            <li>The consent record is stored with the submitted form data, including timestamp and phone number.</li>
-          </ol>
-          <p class="small">
-            Consent is not inferred from a prior relationship. The consumer must take a clear affirmative action to opt in.
+          <div class="stack">
+            <div class="step">
+              <span class="step-index">1</span>
+              <div class="step-copy">
+                <strong>The consumer receives a CBO keyword.</strong>
+                <p>Kumbu Connect works with participating community-based organizations. Each participating CBO has a keyword such as <strong>KIWA</strong>.</p>
+              </div>
+            </div>
+            <div class="step">
+              <span class="step-index">2</span>
+              <div class="step-copy">
+                <strong>The consumer sends the keyword by SMS.</strong>
+                <p>The consumer texts the keyword from their own mobile phone to <strong>(833) 632-7146</strong>. This inbound text message is the affirmative opt-in action.</p>
+              </div>
+            </div>
+            <div class="step">
+              <span class="step-index">3</span>
+              <div class="step-copy">
+                <strong>Kumbu Connect records the opt-in event.</strong>
+                <p>The system stores the phone number, the keyword used to enroll, the timestamp of the inbound message, and the subscriber status as proof of consent.</p>
+              </div>
+            </div>
+            <div class="step">
+              <span class="step-index">4</span>
+              <div class="step-copy">
+                <strong>The feedback workflow begins only after that opt-in.</strong>
+                <p>The subscriber then receives community feedback prompts, optional follow-up questions, and future check-in messages unless they opt out.</p>
+              </div>
+            </div>
+          </div>
+          <p class="fine-print">
+            Consent is never inferred from a prior relationship, prior service use, or acceptance of another document.
+            The user must send the keyword themselves to start the SMS program.
           </p>
         </section>
 
         <section>
-          <h2>Consent Language Presented to the Consumer</h2>
-          <p>The following disclosure is shown to the consumer before they opt in:</p>
-          <blockquote>
-            By providing your phone number and checking this box, you agree to receive SMS messages from
-            <strong>[Organization Name]</strong> about <strong>[Program Name]</strong>. Message frequency may vary.
-            Message and data rates may apply. Reply STOP to opt out. Reply HELP for help. Consent is not a
-            condition of purchase or participation.
-          </blockquote>
+          <h2>Exact Opt-In Language Presented to Consumers</h2>
+          <p>This is the disclosure Kumbu Connect uses with the keyword-based sign-up instruction:</p>
+          <div class="disclosure-card">
+            <h3>Consumer Sign-Up Prompt</h3>
+            <blockquote>
+              Text your participating CBO keyword to (833) 632-7146 to join Kumbu Connect Community Feedback.
+              By texting the keyword, you agree to receive SMS messages from Kumbu Connect about community feedback
+              surveys, follow-up questions, and periodic check-ins related to that CBO. Message frequency varies.
+              Message and data rates may apply. Reply STOP to opt out. Reply HELP for help. Consent is not a condition
+              of purchase.
+            </blockquote>
+          </div>
+          <p class="fine-print">
+            This language explicitly references <strong>SMS messages</strong>, explains <strong>what messages the user will receive</strong>,
+            and tells the user exactly how to stop or request help.
+          </p>
+          <div class="proof-preview">
+            <h3>Public Consumer Sign-Up Surface</h3>
+            <p>
+              Kumbu Connect also publishes a separate public opt-in instruction page that shows the exact keyword-based
+              prompt a consumer sees before sending the first SMS.
+            </p>
+            <div class="proof-preview-cta">
+              <strong>Text KIWA to (833) 632-7146</strong>
+              <span>
+                By texting the keyword, the consumer agrees to receive SMS messages from Kumbu Connect about community
+                feedback surveys, follow-up questions, and periodic check-ins related to that CBO. Reply STOP to opt out.
+                Reply HELP for help.
+              </span>
+            </div>
+          </div>
         </section>
 
         <section>
-          <h2>Example Confirmation Message</h2>
-          <p>After opting in, the consumer may receive a confirmation message similar to the following:</p>
-          <div class="sample">Hello, thank you for signing up for [Program Name] updates from [Organization Name]. Message frequency varies. Msg &amp; data rates may apply. Reply STOP to opt out or HELP for help.</div>
+          <h2>Public Evidence URLs</h2>
+          <p>
+            Twilio can review both of the following public URLs. The second URL shows the exact consumer-facing sign-up
+            instruction surface that appears before the user sends the keyword.
+          </p>
+          <div class="evidence-links">
+            <a class="evidence-link" href="./index.html">
+              <strong>Primary Compliance Proof Page</strong>
+              <span>https://kumbuconnect-lang.github.io/Twilio-User-Consent/</span>
+            </a>
+            <a class="evidence-link" href="./opt-in-instructions.html">
+              <strong>Consumer Sign-Up Instruction Page</strong>
+              <span>https://kumbuconnect-lang.github.io/Twilio-User-Consent/opt-in-instructions.html</span>
+            </a>
+          </div>
         </section>
 
         <section>
-          <h2>Opt-Out and Support</h2>
+          <h2>Representative Message Samples</h2>
+          <div class="stack">
+            <div class="message-card">
+              <h3>First Program Message After Opt-In</h3>
+              <p>This is the first automated message sent after the consumer texts the keyword:</p>
+              <div class="message">Thank you for joining KIWA feedback. Reply with a number from 1 to 10 to rate how KIWA has helped your community.</div>
+            </div>
+            <div class="message-card">
+              <h3>Opt-Out Confirmation</h3>
+              <div class="message">You have been unsubscribed from Kumbu Connect community feedback messages. Reply HELP for instructions.</div>
+            </div>
+            <div class="message-card">
+              <h3>Help / Enrollment Guidance</h3>
+              <div class="message">Reply with your CBO keyword to begin feedback. Example keywords: KIWA.</div>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Message Types and Consumer Expectations</h2>
+          <div class="grid">
+            <div class="panel">
+              <strong>Initial Session</strong>
+              <p>After opt-in, Kumbu Connect sends a rating prompt, a follow-up count question, and an optional story prompt.</p>
+            </div>
+            <div class="panel">
+              <strong>Future Check-Ins</strong>
+              <p>Subscribers may later receive additional check-in messages about the same community feedback program if they remain subscribed.</p>
+            </div>
+            <div class="panel">
+              <strong>Frequency</strong>
+              <p>Message frequency varies. A typical feedback session is short and usually contains 2 to 5 messages.</p>
+            </div>
+            <div class="panel">
+              <strong>Support</strong>
+              <p>Consumers can reply <strong>HELP</strong> for enrollment guidance or contact <strong>kumbuconnect@gmail.com</strong>.</p>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Opt-Out and Help</h2>
           <ul>
-            <li>Consumers can reply <strong>STOP</strong> at any time to stop receiving SMS messages.</li>
-            <li>Consumers can reply <strong>HELP</strong> for assistance.</li>
-            <li>Support contact: <strong>[support email or phone number]</strong>.</li>
+            <li>Consumers can reply <strong>STOP</strong>, <strong>END</strong>, <strong>QUIT</strong>, <strong>CANCEL</strong>, or <strong>UNSUBSCRIBE</strong> to opt out.</li>
+            <li>Consumers can reply <strong>HELP</strong> or <strong>INFO</strong> to receive instructions.</li>
+            <li>Kumbu Connect honors opt-out requests by marking the subscriber as opted out and stopping future messages.</li>
           </ul>
         </section>
 
         <section>
           <h2>Recordkeeping</h2>
-          <p>
-            <strong>[Organization Name]</strong> retains records of opt-in submissions, including the phone number,
-            consent language presented, submission timestamp, and source page or form used to collect consent.
-          </p>
-          <p>
-            Supporting evidence that can be provided separately if requested includes screenshots of the signup page,
-            exported form records, or audit logs showing affirmative opt-in.
+          <p>Kumbu Connect retains the following opt-in records for each subscriber:</p>
+          <ul>
+            <li>The mobile phone number that initiated the SMS conversation</li>
+            <li>The CBO keyword used to enroll</li>
+            <li>The timestamp of the inbound keyword message</li>
+            <li>The subscriber's current status, including active or opted out</li>
+            <li>The stored message transcript for the feedback session</li>
+          </ul>
+          <p class="fine-print">
+            These records document the user's affirmative opt-in action and can be used to verify that consent was
+            collected before follow-up messaging began.
           </p>
         </section>
       </main>
 
       <footer>
-        Last updated: [Month Day, Year]<br>
-        Contact for compliance questions: [Name or Team], [email address]
+        Last updated: April 21, 2026<br>
+        Compliance contact: kumbuconnect@gmail.com
       </footer>
     </article>
   </div>

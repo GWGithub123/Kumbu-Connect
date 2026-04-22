@@ -46,7 +46,9 @@ The `cbos` table also now supports:
 - `community_prompt`
 - `community_feedback_enabled`
 
-To activate a CBO keyword, set `sms_keyword` for that CBO record.
+If `sms_keyword` is blank, the app derives a stable fallback keyword from the CBO slug plus its ID so inbound SMS routing stays unique.
+
+For production, set a short explicit `sms_keyword` for each CBO record.
 
 ## Twilio Webhook
 
