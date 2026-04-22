@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Bookkeeping Admin — Kumbu Connect{% endblock %}
+
+{% block content %}
+<div class="container admin-page">
+  <section class="admin-hero">
+    <div>
+      <h1><i class="fas fa-file-invoice-dollar"></i> Bookkeeping Admin</h1>
+      <p>Search scanned documents, filter by CBO or document type, trigger re-scans, and export normalized bookkeeping entries.</p>
+    </div>
+    <div class="admin-hero-actions">
+      <a href="{{ url_for('main.export_bookkeeping_csv', q=q, cbo_id=selected_cbo_id, document_type=selected_document_type) }}" class="btn btn-primary">
+        <i class="fas fa-file-csv"></i> Export Filtered CSV
+      </a>
+      <a href="{{ url_for('main.marketplace') }}" class="btn btn-outline">Back to Marketplace</a>
+    </div>
+  </section>
+
+  <section class="admin-stats-grid">
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Documents</span>
+      <strong class="admin-stat-value">{{ totals.documents }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Entries</span>
+      <strong class="admin-stat-value">{{ totals.entries }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Income</span>
+      <strong class="admin-stat-value">KSh {{ '%.0f'|format(totals.income) }}</strong>
+    </div>
+    <div class="admin-stat-card">
+      <span class="admin-stat-label">Expenses</span>
+      <strong class="admin-stat-value">KSh {{ '%.0f'|format(totals.expenses) }}</strong>
+    </div>
+  </section>
+
+  <section class="admin-panel">
+    <div class="admin-panel-header">
+      <h2><i class="fas fa-filter"></i> Filters</h2>
+    </div>
+    <form method="GET" action="{{ url_for('main.bookkeeping_admin') }}" class="bookkeeping-admin-filters">
+      <input type="search" name="q" value="{{ q }}" placeholder="Search file name, summary, raw text, or extracted values">
+      <select name="cbo_id">
+        <option value="">All CBOs</option>
+        {% for cbo in cbos %}
+          <option value="{{ cbo.id }}" {% if selected_cbo_id == cbo.id %}selected{% endif %}>{{ cbo.name }}</option>
+        {% endfor %}
+      </select>
+      <select name="document_type">
+        <option value="">All document types</option>
+        {% for document_type in document_types %}
+          <option value="{{ document_type }}" {% if selected_document_type == document_type %}selected{% endif %}>{{ document_type.replace('_', ' ')|title }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    </form>
+  </section>
+
+  <section class="admin-panel">
+    <div class="admin-panel-header">
+      <h2><i class="fas fa-table"></i> Documents</h2>
+    </div>
+    {% if document_rows %}
+      <div class="bookkeeping-admin-table-scroll">
+        <table class="bookkeeping-admin-table">
+          <thead>
+            <tr>
+              <th>CBO</th>
+              <th>File</th>
+              <th>Type</th>
+              <th>Summary</th>
+              <th>Entries</th>
+              <th>Totals</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in document_rows %}
+            <tr>
+              <td>{{ row.cbo.name }}</td>
+              <td>
+                <strong>{{ row.document.original_filename }}</strong>
+                <div class="bookkeeping-admin-table__subline">{{ row.document.created_at.strftime('%Y-%m-%d %H:%M') if row.document.created_at else '' }}</div>
+              </td>
+              <td>{{ row.document.document_type.replace('_', ' ')|title }}</td>
+              <td>{{ row.document.summary_text }}</td>
+              <td>{{ row.entry_count }}</td>
+              <td>
+                In {{ '%.0f'|format(row.document.total_income or 0) }}<br>
+                Out {{ '%.0f'|format(row.document.total_expenses or 0) }}
+              </td>
+              <td class="bookkeeping-admin-table__actions">
+                <form method="POST" action="{{ url_for('main.rescan_bookkeeping_document', document_id=row.document.id) }}">
+                  <button type="submit" class="btn btn-outline btn-sm">Re-scan</button>
+                </form>
+                <a href="{{ url_for('main.cbo_profile', slug=row.cbo.slug) }}" class="btn btn-outline btn-sm">Profile</a>
+                <a href="{{ url_for('main.bookkeeping_document_image', document_id=row.document.id) }}" class="btn btn-outline btn-sm">Image</a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="admin-empty-state">No bookkeeping documents matched these filters.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

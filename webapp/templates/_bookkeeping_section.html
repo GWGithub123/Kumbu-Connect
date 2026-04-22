@@ -1,0 +1,1044 @@
+{% macro bookkeeping_column_class(column_name) -%}
+{%- set column = (column_name or '')|lower -%}
+{%- if 'date' in column -%}
+bookkeeping-table__col--date
+{%- elif 'sign' in column -%}
+bookkeeping-table__col--signature
+{%- elif column in ['row', 'no', 'no.', 'sn', 's/n', 'm/f', 'sex', 'gender', 'days'] or 'days' in column or 'qty' in column or 'quantity' in column -%}
+bookkeeping-table__col--short
+{%- elif 'name' in column or 'tool' in column -%}
+bookkeeping-table__col--name
+{%- elif 'amount' in column or 'fee' in column or 'revenue' in column or 'cost' in column or 'price' in column or 'balance' in column -%}
+bookkeeping-table__col--amount
+{%- elif 'phone' in column or 'id' in column -%}
+bookkeeping-table__col--id
+{%- else -%}
+bookkeeping-table__col--text
+{%- endif -%}
+{%- endmacro %}
+
+{% set bookkeeping_locked_pane = bookkeeping_locked_pane|default('', true) %}
+{% set default_bookkeeping_pane = bookkeeping_locked_pane if bookkeeping_locked_pane in ['live', 'digitized'] else ('live' if own else 'digitized') %}
+{% set can_manage_bookkeeping = can_manage_bookkeeping|default(own or viewer_is_funder, true) %}
+
+<section class="profile-section bookkeeping-section" id="bookkeepingSection" data-cbo-id="{{ cbo.id }}" data-default-pane="{{ default_bookkeeping_pane }}" data-pane-storage-key="cbo-{{ cbo.id }}-bookkeeping-pane">
+
+  <div class="bookkeeping-section-status" hidden></div>
+  <div class="bookkeeping-loading-overlay" hidden>
+    <div class="bookkeeping-loading-overlay__card">
+      <i class="fas fa-spinner fa-spin"></i>
+      <span>Processing audit documents…</span>
+    </div>
+  </div>
+
+  {% if not bookkeeping_locked_pane %}
+  <div class="bk-subtabs" data-bk-tablist role="tablist" aria-label="Bookkeeping sections">
+    <button class="bk-subtab{% if default_bookkeeping_pane == 'live' %} is-active{% endif %}" type="button" data-bk-pane-target="live" role="tab" aria-selected="{{ 'true' if default_bookkeeping_pane == 'live' else 'false' }}">
+      <i class="fas fa-table-cells-large"></i>
+      <span>Live Bookkeeping</span>
+    </button>
+    <button class="bk-subtab{% if default_bookkeeping_pane == 'digitized' %} is-active{% endif %}" type="button" data-bk-pane-target="digitized" role="tab" aria-selected="{{ 'true' if default_bookkeeping_pane == 'digitized' else 'false' }}">
+      <i class="fas fa-file-invoice-dollar"></i>
+      <span>Digitized Documents</span>
+    </button>
+  </div>
+  {% endif %}
+
+  {% if not bookkeeping_locked_pane or bookkeeping_locked_pane == 'digitized' %}
+  <div class="bk-pane{% if default_bookkeeping_pane == 'digitized' %} is-active{% endif %}" data-bk-pane="digitized"{% if default_bookkeeping_pane != 'digitized' %} hidden{% endif %}>
+    <div class="bk-digitized-toprow{% if not can_manage_bookkeeping %} bk-digitized-toprow--solo{% endif %}">
+    {% if can_manage_bookkeeping %}
+    <div class="bk-digitized-toprow__main">
+  <!-- ═══════════════════════════════════════════════════════════
+       UPLOAD & MOBILE SCANNER — compact horizontal bar
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="bk-upload-bar">
+    <form method="POST" action="{{ url_for('main.upload_bookkeeping_documents', cbo_id=cbo.id) }}" enctype="multipart/form-data" class="bk-upload-bar__form" data-bookkeeping-async="true">
+      <div class="bk-drop-zone" id="bkDropZone" role="region" aria-label="Drag and drop files here">
+        <div class="bk-drop-zone__inner">
+          <i class="fas fa-cloud-arrow-up bk-drop-zone__icon"></i>
+          <span class="bk-drop-zone__hint">Drop images or PDFs here, or use the buttons below</span>
+          <div class="bk-upload-bar__inputs">
+            <label class="bk-upload-bar__file-label">
+              <i class="fas fa-camera"></i>
+              <span>Capture Photo</span>
+              <input name="bookkeeping_images" type="file" accept="image/*,.pdf" capture="environment" hidden>
+            </label>
+            <label class="bk-upload-bar__file-label">
+              <i class="fas fa-file-arrow-up"></i>
+              <span>Upload Files</span>
+              <input id="bkFileInput" name="bookkeeping_images" type="file" accept="image/*,.pdf" multiple hidden>
+            </label>
+            <label class="bk-upload-bar__checkbox">
+              <input name="combine_related_pages" type="checkbox" value="on">
+              <span>Align multi-page rows</span>
+            </label>
+          </div>
+          <div class="bk-upload-bar__prefs">
+            <label class="bk-upload-bar__field">
+              <span class="bk-upload-bar__field-label">Document Date</span>
+              <input name="document_date" type="date" required>
+              <span class="bk-upload-bar__field-note">This decides which month and year the document belongs to in the living workbook.</span>
+            </label>
+            <label class="bk-upload-bar__checkbox bk-upload-bar__checkbox--stacked">
+              <input name="import_into_workspace" type="checkbox" value="on">
+              <span>
+                <strong>Add extracted rows to the live workbook</strong>
+                <small>Leave this off to digitize the file without changing the active bookkeeping table.</small>
+              </span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">
+        <i class="fas fa-bolt"></i> Scan
+      </button>
+    </form>
+
+    {% if mobile_scan and mobile_scan.url %}
+    <div class="bk-upload-bar__qr">
+      <span class="bk-upload-bar__qr-title">Mobile Scanner</span>
+      <div class="bk-upload-bar__qr-body">
+        <div class="bk-upload-bar__qr-code" aria-label="QR code for mobile scanner">
+          {{ mobile_scan.qr_svg|safe }}
+        </div>
+        <div class="bk-upload-bar__qr-actions">
+          <a href="{{ mobile_scan.url }}" class="btn btn-outline btn-xs" target="_blank" rel="noopener"><i class="fas fa-mobile-screen-button"></i> Open</a>
+          <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ mobile_scan.url }}"><i class="fas fa-copy"></i> Copy</button>
+        </div>
+      </div>
+    </div>
+    {% elif mobile_scan %}
+    <div class="bk-upload-bar__qr-unavailable">
+      <i class="fas fa-mobile-screen-button"></i>
+      <span>{{ mobile_scan.availability_message }}</span>
+    </div>
+    {% endif %}
+  </div>
+    </div>
+    {% endif %}
+
+    <div class="bk-pane-intro bk-pane-intro--aside">
+      <span class="bookkeeping-eyebrow">Paper to Database</span>
+      <h3>Digitized Bookkeeping Documents</h3>
+      <p>Scan paper ledgers, receipts, and cashbooks, then review extracted rows, audit flags, and funding checks in one place.</p>
+    </div>
+    </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       METRICS RIBBON
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="bk-metrics-ribbon">
+    <div class="bk-metric"><strong>{{ bookkeeping_summary.document_count }}</strong><span>Documents</span></div>
+    <div class="bk-metric"><strong>{{ bookkeeping_summary.entry_count }}</strong><span>Entries</span></div>
+    <div class="bk-metric bk-metric--warning"><strong>{{ bookkeeping_summary.audit_issue_count }}</strong><span>Audit Flags</span></div>
+    <div class="bk-metric"><strong>KSh {{ '%.2f'|format(bookkeeping_summary.income_total) }}</strong><span>Income</span></div>
+    <div class="bk-metric"><strong>KSh {{ '%.2f'|format(bookkeeping_summary.expense_total) }}</strong><span>Expenses</span></div>
+    <div class="bk-metric bk-metric--accent"><strong>KSh {{ '%.2f'|format(bookkeeping_summary.net_total) }}</strong><span>Net</span></div>
+  </div>
+
+  {% if bookkeeping_summary.top_categories %}
+  <div class="bk-category-row">
+    {% for category in bookkeeping_summary.top_categories %}
+      <span class="bookkeeping-category-chip bookkeeping-category-chip--{{ category.entry_type }}">{{ category.label }} · KSh {{ '%.2f'|format(category.amount) }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  </div>
+  {% endif %}
+
+  {% set workspace = bookkeeping_summary.workspace %}
+  {% if not bookkeeping_locked_pane or bookkeeping_locked_pane == 'live' %}
+  <div class="bk-pane{% if default_bookkeeping_pane == 'live' %} is-active{% endif %} bk-pane--live" data-bk-pane="live"{% if default_bookkeeping_pane != 'live' %} hidden{% endif %}>
+    <div class="bk-metrics-ribbon bk-metrics-ribbon--workspace">
+      <div class="bk-metric"><strong>{{ workspace.columns|length }}</strong><span>Columns</span></div>
+      <div class="bk-metric"><strong data-live-row-count>{{ workspace.row_count }}</strong><span>Saved Rows</span></div>
+      <div class="bk-metric"><strong>{{ workspace.custom_fields|length }}</strong><span>Custom Fields</span></div>
+      <div class="bk-metric"><strong>{{ workspace.primary_document_type or 'Custom' }}</strong><span>Layout</span></div>
+      <div class="bk-metric bk-metric--accent"><strong>{{ workspace.generated_at.strftime('%Y-%m-%d') if workspace.generated_at else 'Ready' }}</strong><span>Template Status</span></div>
+    </div>
+
+    <div class="bk-audit-panel bk-audit-panel--funding bookkeeping-database-panel bk-live-workspace-panel">
+      <div class="bk-live-workspace-panel__top">
+        <div class="bk-live-workspace-panel__lead">
+          <span class="bookkeeping-eyebrow">Live Bookkeeping</span>
+          <h3>Workbook Table</h3>
+          <p class="bookkeeping-sheet__note">Scroll inside the workbook to review all visible rows. Changes autosave after you pause typing.</p>
+        </div>
+        {% if own %}
+        <div class="bk-live-workspace-panel__actions">
+          {% if workspace.columns %}
+          <div class="bk-live-template-tools">
+            <div class="bk-live-template-tools__buttons">
+              <button type="button" class="btn btn-outline btn-sm" data-open-workspace-modal="columns"><i class="fas fa-pen-to-square"></i> Edit Columns</button>
+              <button type="button" class="btn btn-outline btn-sm" data-open-workspace-modal="worksheet"><i class="fas fa-folder-plus"></i> New Worksheet</button>
+            </div>
+            <p>Adjust workbook headers, add new fields, or open a fresh month/category worksheet without leaving this page.</p>
+          </div>
+          {% endif %}
+          {% if workspace.columns %}
+          <div class="bk-live-savebar">
+            <div class="bk-live-savebar__status">
+              <span class="bk-live-savebar__state is-ready" data-live-save-state>Autosave On</span>
+              <span class="bk-live-savebar__note" data-live-save-note>Changes sync after you pause typing.</span>
+            </div>
+            <button type="submit" class="btn btn-outline btn-sm" form="bkLiveWorkspaceForm"><i class="fas fa-cloud-arrow-up"></i> Save Now</button>
+          </div>
+          {% endif %}
+          <div class="bk-live-access-card{% if not bookkeeping_offline or not bookkeeping_offline.url %} bk-live-access-card--unavailable{% endif %}">
+            <div class="bk-live-access-card__intro">
+              <span class="bookkeeping-eyebrow">Offline Access</span>
+              <h4>Bookkeeping Offline App</h4>
+              <p>{% if bookkeeping_offline and bookkeeping_offline.url %}Open here or scan from another device.{% else %}Open here now. Public QR sharing is not configured yet.{% endif %}</p>
+            </div>
+            <div class="bk-live-access-card__body{% if bookkeeping_offline and bookkeeping_offline.url %} has-qr{% endif %}">
+              {% if bookkeeping_offline and bookkeeping_offline.url %}
+              <div class="bk-live-access-card__qr" aria-label="QR code for offline bookkeeping app">
+                {{ bookkeeping_offline.qr_svg|safe }}
+              </div>
+              {% endif %}
+              <div class="bk-live-access-card__actions">
+                <a href="{{ bookkeeping_offline.url or bookkeeping_offline.preview_url }}" class="btn btn-outline btn-xs"{% if bookkeeping_offline and bookkeeping_offline.url %} target="_blank" rel="noopener"{% endif %}><i class="fas fa-wifi"></i> Open App</a>
+                {% if bookkeeping_offline and bookkeeping_offline.url %}
+                <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ bookkeeping_offline.url }}"><i class="fas fa-copy"></i> Copy Link</button>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% if workspace.primary_document_type or workspace.source_document_types or workspace.custom_fields %}
+      <div class="bk-category-row">
+        {% if workspace.primary_document_type %}
+        <span class="bookkeeping-category-chip bookkeeping-category-chip--income">Layout · {{ workspace.primary_document_type }}</span>
+        {% endif %}
+        {% for source_type in workspace.source_document_types %}
+        <span class="bookkeeping-category-chip">{{ source_type }}</span>
+        {% endfor %}
+        {% for field in workspace.custom_fields %}
+        <span class="bookkeeping-category-chip bookkeeping-category-chip--expense">{{ field }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if workspace.columns %}
+      <div class="bookkeeping-table-block bookkeeping-sheet-block">
+        {% if own %}
+        {% set blank_rows_per_group = 8 %}
+        {% set total_rows = workspace.entries|length + ((workspace.type_groups|length if workspace.type_groups else 1) * blank_rows_per_group) %}
+        {% set row_ns = namespace(index=0) %}
+        <form id="bkLiveWorkspaceForm" method="POST" action="{{ url_for('main.add_bookkeeping_workspace_entry', cbo_id=cbo.id) }}" class="bk-audit-panel__form bk-live-workspace-form" data-bookkeeping-live-form>
+          <input type="hidden" name="grid_row_count" value="{{ total_rows }}" data-grid-row-count>
+          <input type="hidden" name="autosave" value="1" data-bookkeeping-autosave-flag>
+          <div class="bk-live-workspace-groups bk-folders">
+            {% for type_group in workspace.type_groups %}
+            <details class="bk-folder bk-live-folder" data-workspace-type-key="{{ type_group.key }}" {% if loop.first %}open{% endif %}>
+              <summary class="bk-folder__header">
+                <i class="fas fa-folder"></i>
+                <span class="bk-folder__name">{{ type_group.label }}</span>
+                <span class="bk-folder__count">{{ type_group.row_count }} saved row{{ 's' if type_group.row_count != 1 else '' }}</span>
+                <i class="fas fa-chevron-down bk-folder__chevron"></i>
+              </summary>
+              <div class="bk-folder__contents">
+                <div class="bk-live-workspace-folder">
+                  <div class="bookkeeping-table-paginated bookkeeping-table-paginated--workspace" data-bookkeeping-pagination data-page-size="30" data-page-storage-key="cbo-{{ cbo.id }}-workspace-edit-{{ type_group.key }}">
+                    <div class="bookkeeping-table-toolbar">
+                      <div class="bk-live-period-header">
+                        <h4>{{ type_group.label }}</h4>
+                        <span class="bookkeeping-sheet__subnote">Rows in this bookkeeping layout are organized by month. Imported document rows stay within their source document type.</span>
+                      </div>
+                      <div class="bookkeeping-table-controls">
+                        <label class="bk-live-period-control">
+                          <span>Period</span>
+                          <select data-workspace-period-select data-period-storage-key="cbo-{{ cbo.id }}-workspace-period-{{ type_group.key }}" data-default-period-key="{{ type_group.default_period_key }}">
+                            {% for period in type_group.periods %}
+                            <option value="{{ period.key }}" data-period-label="{{ period.label }}" {% if period.key == type_group.default_period_key %}selected{% endif %}>{{ period.label }} · {{ period.row_count }} row{{ 's' if period.row_count != 1 else '' }}</option>
+                            {% endfor %}
+                          </select>
+                        </label>
+                        <span class="bookkeeping-category-chip" data-workspace-period-summary>{{ type_group.default_period_label }} · {{ type_group.periods[0].row_count if type_group.periods else 0 }} rows</span>
+                        <button type="button" class="btn btn-outline btn-xs bookkeeping-table-control" data-scroll-table="left" aria-label="Scroll workbook table left">
+                          <i class="fas fa-arrow-left"></i> Left
+                        </button>
+                        <button type="button" class="btn btn-outline btn-xs bookkeeping-table-control" data-scroll-table="right" aria-label="Scroll workbook table right">
+                          Right <i class="fas fa-arrow-right"></i>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="bookkeeping-table-scroll bookkeeping-table-scroll--digitized bookkeeping-table-scroll--workspace">
+                      <table class="bookkeeping-table bookkeeping-table--digitized bookkeeping-table--sheet bookkeeping-table--database">
+                        <thead>
+                          <tr>
+                            <th class="bookkeeping-table__col bookkeeping-table__col--rownum">Record</th>
+                            {% for column in workspace.columns %}
+                            <th class="bookkeeping-table__col {{ bookkeeping_column_class(column) }}">{{ column }}</th>
+                            {% endfor %}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% set display_ns = namespace(index=0) %}
+                          {% for entry in type_group.entries %}
+                          {% set row_index = row_ns.index %}
+                          {% set row_ns.index = row_ns.index + 1 %}
+                          {% set display_ns.index = display_ns.index + 1 %}
+                          {% set entry_values = entry['values'] if entry is mapping and 'values' in entry else {} %}
+                          {% set entry_source = entry['entry_source'] if entry is mapping and 'entry_source' in entry else 'manual' %}
+                          {% set entry_period_key = entry['workspace_period_key'] if entry is mapping and 'workspace_period_key' in entry and entry['workspace_period_key'] else type_group.default_period_key %}
+                          {% set entry_type_key = entry['workspace_document_type_key'] if entry is mapping and 'workspace_document_type_key' in entry and entry['workspace_document_type_key'] else type_group.key %}
+                          <tr class="bookkeeping-database-row bookkeeping-database-row--{{ 'imported' if entry_source == 'document_import' else 'manual' }}" data-pagination-row="true" data-row-index="{{ row_index }}" data-workspace-period="{{ entry_period_key }}" data-workspace-type="{{ entry_type_key }}">
+                            <td class="bookkeeping-table__col bookkeeping-table__col--rownum bookkeeping-database-row__meta">
+                              <span class="bookkeeping-database-row__index">{{ display_ns.index }}</span>
+                              <span class="bookkeeping-database-row__tag bookkeeping-database-row__tag--{{ 'imported' if entry_source == 'document_import' else 'manual' }}">{{ 'Imported' if entry_source == 'document_import' else 'Saved' }}</span>
+                              <span class="bookkeeping-database-row__stamp">{{ entry.created_at_display }}</span>
+                              <input type="hidden" name="grid_row_id_{{ row_index }}" value="{{ entry['row_id'] if entry is mapping and 'row_id' in entry else '' }}" data-role="row-id">
+                              <input type="hidden" name="grid_row_created_at_{{ row_index }}" value="{{ entry['created_at'].isoformat() if entry is mapping and 'created_at' in entry and entry['created_at'] else '' }}" data-role="created-at">
+                              <input type="hidden" name="grid_row_updated_at_{{ row_index }}" value="{{ entry['updated_at'].isoformat() if entry is mapping and 'updated_at' in entry and entry['updated_at'] else '' }}" data-role="updated-at">
+                              <input type="hidden" name="grid_row_source_{{ row_index }}" value="{{ entry_source }}" data-role="entry-source">
+                              <input type="hidden" name="grid_row_document_{{ row_index }}" value="{{ entry['source_document_id'] if entry is mapping and 'source_document_id' in entry and entry['source_document_id'] else '' }}" data-role="source-document-id">
+                              <input type="hidden" name="grid_row_document_row_{{ row_index }}" value="{{ entry['source_row_number'] if entry is mapping and 'source_row_number' in entry and entry['source_row_number'] else '' }}" data-role="source-row-number">
+                              <input type="hidden" name="grid_row_document_type_{{ row_index }}" value="{{ entry_type_key }}" data-role="workspace-document-type">
+                              <input type="hidden" name="grid_row_period_{{ row_index }}" value="{{ entry_period_key }}" data-role="workspace-period">
+                            </td>
+                            {% for column in workspace.columns %}
+                            <td class="bookkeeping-table__col {{ bookkeeping_column_class(column) }}">
+                              <input
+                                class="bookkeeping-sheet__input"
+                                name="grid_cell_{{ row_index }}_{{ loop.index0 }}"
+                                type="text"
+                                value="{{ entry_values.get(column, '') }}"
+                                aria-label="{{ column }} row {{ display_ns.index }}"
+                                autocomplete="off"
+                                data-column="{{ column }}"
+                              >
+                            </td>
+                            {% endfor %}
+                          </tr>
+                          {% endfor %}
+
+                          {% for blank_index in range(blank_rows_per_group) %}
+                          {% set row_index = row_ns.index %}
+                          {% set row_ns.index = row_ns.index + 1 %}
+                          <tr class="bookkeeping-database-row bookkeeping-database-row--new" data-pagination-row="true" data-row-index="{{ row_index }}" data-workspace-period="{{ type_group.default_period_key }}" data-workspace-type="{{ type_group.key }}">
+                            <td class="bookkeeping-table__col bookkeeping-table__col--rownum bookkeeping-database-row__meta">
+                              <span class="bookkeeping-database-row__index">{{ type_group.row_count + blank_index + 1 }}</span>
+                              <span class="bookkeeping-database-row__tag bookkeeping-database-row__tag--new">New</span>
+                              <span class="bookkeeping-database-row__stamp">Ready for entry</span>
+                              <input type="hidden" name="grid_row_id_{{ row_index }}" value="" data-role="row-id">
+                              <input type="hidden" name="grid_row_created_at_{{ row_index }}" value="" data-role="created-at">
+                              <input type="hidden" name="grid_row_updated_at_{{ row_index }}" value="" data-role="updated-at">
+                              <input type="hidden" name="grid_row_source_{{ row_index }}" value="manual" data-role="entry-source">
+                              <input type="hidden" name="grid_row_document_{{ row_index }}" value="" data-role="source-document-id">
+                              <input type="hidden" name="grid_row_document_row_{{ row_index }}" value="" data-role="source-row-number">
+                              <input type="hidden" name="grid_row_document_type_{{ row_index }}" value="{{ type_group.key }}" data-role="workspace-document-type">
+                              <input type="hidden" name="grid_row_period_{{ row_index }}" value="{{ type_group.default_period_key }}" data-role="workspace-period">
+                            </td>
+                            {% for column in workspace.columns %}
+                            <td class="bookkeeping-table__col {{ bookkeeping_column_class(column) }}">
+                              <input
+                                class="bookkeeping-sheet__input"
+                                name="grid_cell_{{ row_index }}_{{ loop.index0 }}"
+                                type="text"
+                                aria-label="{{ column }} new row {{ blank_index + 1 }} for {{ type_group.label }}"
+                                autocomplete="off"
+                                data-column="{{ column }}"
+                              >
+                            </td>
+                            {% endfor %}
+                          </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div class="bookkeeping-table-pagination" data-pagination-controls hidden>
+                      <span class="bookkeeping-table-pagination__summary" data-pagination-summary></span>
+                      <div class="bookkeeping-table-pagination__actions">
+                        <button type="button" class="btn btn-outline btn-xs" data-pagination-prev>Previous Page</button>
+                        <span class="bookkeeping-table-pagination__status" data-pagination-status></span>
+                        <button type="button" class="btn btn-outline btn-xs" data-pagination-next>Next Page</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </details>
+            {% endfor %}
+          </div>
+        </form>
+        {% else %}
+        <div class="bk-live-workspace-groups bk-folders">
+          {% for type_group in workspace.type_groups %}
+          <details class="bk-folder bk-live-folder" data-workspace-type-key="{{ type_group.key }}" {% if loop.first %}open{% endif %}>
+            <summary class="bk-folder__header">
+              <i class="fas fa-folder"></i>
+              <span class="bk-folder__name">{{ type_group.label }}</span>
+              <span class="bk-folder__count">{{ type_group.row_count }} row{{ 's' if type_group.row_count != 1 else '' }}</span>
+              <i class="fas fa-chevron-down bk-folder__chevron"></i>
+            </summary>
+            <div class="bk-folder__contents">
+              <div class="bk-live-workspace-folder">
+                <div class="bookkeeping-table-paginated bookkeeping-table-paginated--workspace" data-bookkeeping-pagination data-page-size="30" data-page-storage-key="cbo-{{ cbo.id }}-workspace-view-{{ type_group.key }}">
+                  <div class="bookkeeping-table-toolbar">
+                    <div class="bk-live-period-header">
+                      <h4>{{ type_group.label }}</h4>
+                      <span class="bookkeeping-sheet__subnote">View one month at a time inside this document type.</span>
+                    </div>
+                    <div class="bookkeeping-table-controls">
+                      <label class="bk-live-period-control">
+                        <span>Period</span>
+                        <select data-workspace-period-select data-period-storage-key="cbo-{{ cbo.id }}-workspace-period-{{ type_group.key }}" data-default-period-key="{{ type_group.default_period_key }}">
+                          {% for period in type_group.periods %}
+                          <option value="{{ period.key }}" data-period-label="{{ period.label }}" {% if period.key == type_group.default_period_key %}selected{% endif %}>{{ period.label }} · {{ period.row_count }} row{{ 's' if period.row_count != 1 else '' }}</option>
+                          {% endfor %}
+                        </select>
+                      </label>
+                      <span class="bookkeeping-category-chip" data-workspace-period-summary>{{ type_group.default_period_label }} · {{ type_group.periods[0].row_count if type_group.periods else 0 }} rows</span>
+                      <button type="button" class="btn btn-outline btn-xs bookkeeping-table-control" data-scroll-table="left" aria-label="Scroll workbook table left">
+                        <i class="fas fa-arrow-left"></i> Left
+                      </button>
+                      <button type="button" class="btn btn-outline btn-xs bookkeeping-table-control" data-scroll-table="right" aria-label="Scroll workbook table right">
+                        Right <i class="fas fa-arrow-right"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="bookkeeping-table-scroll bookkeeping-table-scroll--digitized bookkeeping-table-scroll--workspace">
+                    <table class="bookkeeping-table bookkeeping-table--digitized bookkeeping-table--database">
+                      <thead>
+                        <tr>
+                          <th class="bookkeeping-table__col bookkeeping-table__col--rownum">Record</th>
+                          {% for column in workspace.columns %}
+                          <th class="bookkeeping-table__col {{ bookkeeping_column_class(column) }}">{{ column }}</th>
+                          {% endfor %}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for entry in type_group.entries %}
+                        {% set entry_values = entry['values'] if entry is mapping and 'values' in entry else {} %}
+                        {% set entry_source = entry['entry_source'] if entry is mapping and 'entry_source' in entry else 'manual' %}
+                        {% set entry_period_key = entry['workspace_period_key'] if entry is mapping and 'workspace_period_key' in entry and entry['workspace_period_key'] else type_group.default_period_key %}
+                        {% set entry_type_key = entry['workspace_document_type_key'] if entry is mapping and 'workspace_document_type_key' in entry and entry['workspace_document_type_key'] else type_group.key %}
+                        <tr class="bookkeeping-database-row bookkeeping-database-row--{{ 'imported' if entry_source == 'document_import' else 'manual' }}" data-pagination-row="true" data-row-index="{{ loop.index0 }}" data-workspace-period="{{ entry_period_key }}" data-workspace-type="{{ entry_type_key }}">
+                          <td class="bookkeeping-table__col bookkeeping-table__col--rownum bookkeeping-database-row__meta">
+                            <span class="bookkeeping-database-row__index">{{ loop.index }}</span>
+                            <span class="bookkeeping-database-row__tag bookkeeping-database-row__tag--{{ 'imported' if entry_source == 'document_import' else 'manual' }}">{{ 'Imported' if entry_source == 'document_import' else 'Saved' }}</span>
+                            <span class="bookkeeping-database-row__stamp">{{ entry.created_at_display }}</span>
+                          </td>
+                          {% for column in workspace.columns %}
+                          <td class="bookkeeping-table__col {{ bookkeeping_column_class(column) }}">{{ entry_values.get(column, '') or '—' }}</td>
+                          {% endfor %}
+                        </tr>
+                        {% endfor %}
+                        {% if not type_group.entries %}
+                        {% for preview_index in range(6) %}
+                        <tr class="bookkeeping-database-row bookkeeping-database-row--new" data-pagination-row="true" data-pagination-placeholder="true" data-row-index="preview-{{ type_group.key }}-{{ preview_index }}" data-workspace-period="{{ type_group.default_period_key }}" data-workspace-type="{{ type_group.key }}">
+                          <td class="bookkeeping-table__col bookkeeping-table__col--rownum bookkeeping-database-row__meta">
+                            <span class="bookkeeping-database-row__index">{{ preview_index + 1 }}</span>
+                            <span class="bookkeeping-database-row__tag bookkeeping-database-row__tag--new">Ready</span>
+                            <span class="bookkeeping-database-row__stamp">No saved rows yet</span>
+                          </td>
+                          {% for column in workspace.columns %}
+                          <td class="bookkeeping-table__col {{ bookkeeping_column_class(column) }}">—</td>
+                          {% endfor %}
+                        </tr>
+                        {% endfor %}
+                        {% endif %}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="bookkeeping-table-pagination" data-pagination-controls hidden>
+                    <span class="bookkeeping-table-pagination__summary" data-pagination-summary></span>
+                    <div class="bookkeeping-table-pagination__actions">
+                      <button type="button" class="btn btn-outline btn-xs" data-pagination-prev>Previous Page</button>
+                      <span class="bookkeeping-table-pagination__status" data-pagination-status></span>
+                      <button type="button" class="btn btn-outline btn-xs" data-pagination-next>Next Page</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="bookkeeping-empty-state">
+        <i class="fas fa-table"></i>
+        <p>No bookkeeping workspace columns are available yet. Sync a bookkeeping document first.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if own and workspace.columns %}
+    <div class="map-modal bk-workspace-modal" id="bkWorkspaceColumnsModal" hidden data-workspace-modal="columns">
+      <div class="map-modal__backdrop" data-close-workspace-modal></div>
+      <div class="map-modal__dialog bk-workspace-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="bkWorkspaceColumnsModalTitle">
+        <button type="button" class="map-modal__close" data-close-workspace-modal aria-label="Close Edit Columns dialog">
+          <i class="fas fa-xmark"></i>
+        </button>
+        <div class="map-modal__header">
+          <span class="map-modal__eyebrow">Workbook Structure</span>
+          <h2 id="bkWorkspaceColumnsModalTitle">Edit Column Headers</h2>
+          <p>Rename headers, add new fields, or remove ones you no longer need. Deleted columns are removed from saved workbook rows.</p>
+        </div>
+        <form method="POST" action="{{ url_for('main.update_bookkeeping_workspace_columns', cbo_id=cbo.id) }}" class="bk-workspace-modal__form" data-bookkeeping-async="true" data-confirm="Saving column changes can remove data from deleted columns. Continue?">
+          <div class="map-modal__body">
+            <div class="bk-workspace-modal__list" data-workspace-column-list>
+              {% for column in workspace.columns %}
+              <div class="bk-workspace-modal__row" data-workspace-column-row>
+                <input type="hidden" name="existing_column_key" value="{{ column }}" data-column-original>
+                <label class="bk-workspace-modal__field">
+                  <span>Column Header</span>
+                  <input type="text" name="column_label" value="{{ column }}" autocomplete="off" data-column-label-input>
+                </label>
+                <button type="button" class="btn btn-outline btn-xs" data-remove-workspace-column>Remove</button>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="bk-workspace-modal__footer-actions">
+              <button type="button" class="btn btn-outline btn-sm" data-add-workspace-column><i class="fas fa-plus"></i> Add Column</button>
+              <div class="bk-workspace-modal__actions">
+                <button type="button" class="btn btn-outline btn-sm" data-close-workspace-modal>Cancel</button>
+                <button type="submit" class="btn btn-primary btn-sm">Save Columns</button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="map-modal bk-workspace-modal" id="bkWorkspaceWorksheetModal" hidden data-workspace-modal="worksheet">
+      <div class="map-modal__backdrop" data-close-workspace-modal></div>
+      <div class="map-modal__dialog bk-workspace-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="bkWorkspaceWorksheetModalTitle">
+        <button type="button" class="map-modal__close" data-close-workspace-modal aria-label="Close New Worksheet dialog">
+          <i class="fas fa-xmark"></i>
+        </button>
+        <div class="map-modal__header">
+          <span class="map-modal__eyebrow">New Worksheet</span>
+          <h2 id="bkWorkspaceWorksheetModalTitle">Create A Workbook Sheet</h2>
+          <p>Pick the worksheet category and the month or months this sheet will cover. The new grid opens in the same workbook format used by your existing sheets.</p>
+        </div>
+        <form method="POST" action="{{ url_for('main.create_bookkeeping_workspace_worksheet', cbo_id=cbo.id) }}" class="bk-workspace-modal__form" data-bookkeeping-async="true">
+          <div class="map-modal__body">
+            <label class="bk-workspace-modal__field">
+              <span>Worksheet Category</span>
+              <input type="text" name="worksheet_label" list="bkWorksheetCategorySuggestions" value="{{ workspace.primary_document_type or '' }}" autocomplete="off" placeholder="Ledger">
+              <small>This becomes the worksheet folder name on the live bookkeeping page.</small>
+            </label>
+            <datalist id="bkWorksheetCategorySuggestions">
+              {% if workspace.primary_document_type %}
+              <option value="{{ workspace.primary_document_type }}"></option>
+              {% endif %}
+              {% for source_type in workspace.source_document_types %}
+              <option value="{{ source_type }}"></option>
+              {% endfor %}
+              {% for type_group in workspace.type_groups %}
+              <option value="{{ type_group.label }}"></option>
+              {% endfor %}
+            </datalist>
+            <div class="bk-workspace-modal__periods" data-workspace-period-list>
+              <div class="bk-workspace-modal__row bk-workspace-modal__row--period" data-workspace-period-row>
+                <label class="bk-workspace-modal__field">
+                  <span>Month</span>
+                  <input type="month" name="worksheet_periods" value="{{ workspace.default_period_key or '' }}" data-worksheet-period-input>
+                </label>
+                <button type="button" class="btn btn-outline btn-xs" data-remove-workspace-period>Remove</button>
+              </div>
+            </div>
+            <input type="hidden" name="default_period_key" value="{{ workspace.default_period_key or '' }}" data-default-worksheet-period>
+            <div class="bk-workspace-modal__footer-actions">
+              <button type="button" class="btn btn-outline btn-sm" data-add-workspace-period><i class="fas fa-plus"></i> Add Month</button>
+              <div class="bk-workspace-modal__actions">
+                <button type="button" class="btn btn-outline btn-sm" data-close-workspace-modal>Cancel</button>
+                <button type="submit" class="btn btn-primary btn-sm">Create Worksheet</button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <template id="bkWorkspaceColumnRowTemplate">
+      <div class="bk-workspace-modal__row" data-workspace-column-row>
+        <input type="hidden" name="existing_column_key" value="" data-column-original>
+        <label class="bk-workspace-modal__field">
+          <span>Column Header</span>
+          <input type="text" name="column_label" value="" autocomplete="off" data-column-label-input>
+        </label>
+        <button type="button" class="btn btn-outline btn-xs" data-remove-workspace-column>Remove</button>
+      </div>
+    </template>
+
+    <template id="bkWorkspacePeriodRowTemplate">
+      <div class="bk-workspace-modal__row bk-workspace-modal__row--period" data-workspace-period-row>
+        <label class="bk-workspace-modal__field">
+          <span>Month</span>
+          <input type="month" name="worksheet_periods" value="" data-worksheet-period-input>
+        </label>
+        <button type="button" class="btn btn-outline btn-xs" data-remove-workspace-period>Remove</button>
+      </div>
+    </template>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if not bookkeeping_locked_pane or bookkeeping_locked_pane == 'digitized' %}
+  <div class="bk-pane{% if default_bookkeeping_pane == 'digitized' %} is-active{% endif %}" data-bk-pane="digitized"{% if default_bookkeeping_pane != 'digitized' %} hidden{% endif %}>
+
+  {% if bookkeeping_summary.documents %}
+  <div class="bookkeeping-section__toolbar">
+    {% if viewer_is_funder %}
+      <a href="{{ url_for('main.bookkeeping_admin') }}" class="btn btn-outline btn-sm"><i class="fas fa-table"></i> Open Bookkeeping Admin</a>
+      <a href="{{ url_for('main.export_bookkeeping_csv') }}" class="btn btn-outline btn-sm"><i class="fas fa-file-csv"></i> Export CSV</a>
+    {% endif %}
+    {% if can_manage_bookkeeping %}
+      <button type="button" class="btn btn-outline btn-sm" id="bkSelectToggle">
+        <i class="fas fa-check-square"></i> Select
+      </button>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- ═══════════════════════════════════════════════════════════
+       DIGITIZED DOCUMENTS — organized by type in folders
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="bk-section-label">
+    <span class="bookkeeping-eyebrow">Revenue Audit</span>
+    <h3>Digitized Bookkeeping Documents</h3>
+  </div>
+
+  {% if bookkeeping_summary.documents_by_type %}
+  <div class="bk-folders">
+    {% for doc_type, items in bookkeeping_summary.documents_by_type.items() %}
+    <details class="bk-folder" {% if loop.first %}open{% endif %}>
+      <summary class="bk-folder__header">
+        <i class="fas fa-folder"></i>
+        <span class="bk-folder__name">{{ doc_type }}</span>
+        <span class="bk-folder__count">{{ items|length }} document{{ 's' if items|length != 1 else '' }}</span>
+        <i class="fas fa-chevron-down bk-folder__chevron"></i>
+      </summary>
+      <div class="bk-folder__contents">
+        {% for item in items %}
+        {% set document = item.document %}
+        <article class="bk-doc-card" id="bk-doc-{{ document.id }}" data-doc-id="{{ document.id }}">
+          <label class="bk-doc-card__select" aria-label="Select document">
+            <input type="checkbox" class="bk-doc-checkbox" value="{{ document.id }}" hidden>
+            <span class="bk-doc-card__select-box"><i class="fas fa-check"></i></span>
+          </label>
+          <div class="bk-doc-card__header" onclick="this.parentElement.classList.toggle('is-expanded')">
+            <div class="bk-doc-card__info">
+              <span class="bk-doc-card__type">{{ document.document_type.replace('_', ' ')|title }}</span>
+              <h4>{{ document.original_filename }}</h4>
+              {% if item.document_title or item.organization_name %}
+              <p class="bk-doc-card__subtitle">{{ item.document_title or 'Untitled' }}{% if item.organization_name %} · {{ item.organization_name }}{% endif %}</p>
+              {% endif %}
+              <span class="bk-doc-card__date"><i class="fas fa-clock"></i> {{ document.created_at.strftime('%b %d, %Y at %H:%M') if document.created_at else 'Unknown date' }}</span>
+            </div>
+            <div class="bk-doc-card__badges">
+              <span class="bk-doc-card__confidence">{{ (document.extraction_confidence * 100)|round|int }}%</span>
+              {% if item.audit_issue_count %}
+              <span class="bookkeeping-audit-badge"><i class="fas fa-triangle-exclamation"></i> {{ item.audit_issue_count }} audit flag{{ 's' if item.audit_issue_count != 1 else '' }}</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="bk-doc-card__body">
+            <div class="bk-doc-card__layout{% if not item.has_image %} bk-doc-card__layout--full{% endif %}">
+              <div class="bk-doc-card__detail">
+                <p class="bk-doc-card__summary">{{ document.summary_text or 'No summary was generated.' }}</p>
+                <div class="bk-doc-card__meta-row">
+                  <span><strong>Date:</strong> {{ document.document_date or 'Unknown' }}</span>
+                  <span><strong>Workbook Month:</strong> {{ item.workspace_period_label or document.workspace_period_key or 'Undated' }}</span>
+                  <span><strong>Counterparty:</strong> {{ document.vendor_or_counterparty or 'Not detected' }}</span>
+                  <span><strong>Entries:</strong> {{ item.entry_count }}</span>
+                  <span><strong>Source File:</strong> {{ 'Retained' if item.has_source_file else 'Discarded after extraction' }}</span>
+                </div>
+                <div class="bk-doc-card__totals">
+                  <span>Income: KSh {{ '%.2f'|format(document.total_income or 0) }}</span>
+                  <span>Expenses: KSh {{ '%.2f'|format(document.total_expenses or 0) }}</span>
+                  <span>Net: KSh {{ '%.2f'|format(document.net_amount or 0) }}</span>
+                </div>
+
+                {% if item.extraction_notes %}
+                <p class="bk-doc-card__notes"><strong>Extraction Notes:</strong> {{ item.extraction_notes }}</p>
+                {% endif %}
+
+                {% if item.top_categories %}
+                <div class="bookkeeping-document-card__chips">
+                  {% for category in item.top_categories %}
+                    <span class="bookkeeping-category-chip">{{ category.label }} · KSh {{ '%.2f'|format(category.amount) }}</span>
+                  {% endfor %}
+                </div>
+                {% endif %}
+              </div>
+
+              {% if item.has_image %}
+              <div class="bk-doc-card__image">
+                <div class="bk-doc-card__image-wrapper">
+                  <img src="{{ url_for('main.bookkeeping_document_image', document_id=document.id) }}" alt="Original document: {{ document.original_filename }}" loading="lazy">
+                  <button type="button" class="bk-doc-card__image-expand" aria-label="View full size document image"
+                    data-expand-img="{{ url_for('main.bookkeeping_document_image', document_id=document.id) }}"
+                    data-expand-label="{{ document.original_filename }}">
+                    <i class="fas fa-expand-alt"></i>
+                  </button>
+                </div>
+                <span class="bk-doc-card__image-label">Original Document</span>
+              </div>
+              {% endif %}
+            </div>
+
+            {% if item.audit_flags or (item.detected_columns and item.transcribed_rows) or item.normalized_entries or item.raw_text or item.quality_flags %}
+            <div class="bk-doc-card__supplemental">
+              {% if item.audit_flags %}
+              <div class="bookkeeping-audit-panel">
+                <h4>Audit Flags</h4>
+                <ul class="bookkeeping-audit-list">
+                  {% for flag in item.audit_flags %}
+                  <li>{{ flag.message }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+              {% endif %}
+
+              {% if item.detected_columns and item.transcribed_rows %}
+              <div class="bookkeeping-table-block">
+                <div class="bookkeeping-table-toolbar">
+                  <h4>Digitized Rows</h4>
+                  <div class="bookkeeping-table-controls">
+                    <button type="button" class="btn btn-outline btn-xs bookkeeping-table-control" data-scroll-table="left" aria-label="Scroll digitized rows left">
+                      <i class="fas fa-arrow-left"></i> Left
+                    </button>
+                    <button type="button" class="btn btn-outline btn-xs bookkeeping-table-control" data-scroll-table="right" aria-label="Scroll digitized rows right">
+                      Right <i class="fas fa-arrow-right"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="bookkeeping-table-scroll bookkeeping-table-scroll--digitized">
+                  <table class="bookkeeping-table bookkeeping-table--digitized">
+                    <thead>
+                      <tr>
+                        <th class="bookkeeping-table__col bookkeeping-table__col--rownum">Row</th>
+                        {% for column in item.detected_columns %}
+                        <th class="bookkeeping-table__col {{ bookkeeping_column_class(column) }}">{{ column }}</th>
+                        {% endfor %}
+                        <th class="bookkeeping-table__col bookkeeping-table__col--notes">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in item.transcribed_rows %}
+                      {% set row_audit_messages = row.audit_cells.get('row', []) if row.audit_cells else [] %}
+                      {% set note_text = row.notes or '' %}
+                      <tr>
+                        <td class="bookkeeping-table__col bookkeeping-table__col--rownum{% if row_audit_messages %} bookkeeping-table__cell--flagged{% endif %}"{% if row_audit_messages %} title="{{ row_audit_messages|join(' | ') }}"{% endif %}>{{ row.row_number or loop.index }}</td>
+                        {% for column in item.detected_columns %}
+                          {% set audit_messages = row.audit_cells.get(column, []) if row.audit_cells else [] %}
+                          {% set signature_cell = row.signature_cells.get(column) if row.signature_cells else none %}
+                          <td class="bookkeeping-table__col {{ bookkeeping_column_class(column) }}{% if audit_messages %} bookkeeping-table__cell--flagged{% endif %}{% if signature_cell %} bookkeeping-table__cell--signature{% endif %}"{% if audit_messages %} title="{{ audit_messages|join(' | ') }}"{% endif %}>
+                            {% if signature_cell %}
+                            <img class="bookkeeping-signature-snippet" src="{{ signature_cell.data_uri }}" alt="Preserved signature for {{ column }} row {{ row.row_number or loop.index }}" loading="lazy">
+                            {% else %}
+                            {{ row.cells.get(column, '') }}
+                            {% endif %}
+                          </td>
+                        {% endfor %}
+                        <td class="bookkeeping-table__col bookkeeping-table__col--notes bookkeeping-table__notes"{% if note_text %} title="{{ note_text }}"{% endif %}>
+                          <span class="bookkeeping-table__notes-text">{{ note_text|truncate(88, True, '…') if note_text else '—' }}</span>
+                        </td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              {% endif %}
+
+              {% if item.normalized_entries %}
+              <div class="bookkeeping-table-block">
+                <h4>Normalized Entries</h4>
+                <div class="bookkeeping-table-scroll">
+                  <table class="bookkeeping-table bookkeeping-table--compact">
+                    <thead>
+                      <tr><th>Date</th><th>Description</th><th>Type</th><th>Category</th><th>Amount</th><th>Qty</th><th>Confidence</th></tr>
+                    </thead>
+                    <tbody>
+                      {% for entry in item.normalized_entries %}
+                      <tr>
+                        <td>{{ entry.entry_date or '—' }}</td>
+                        <td>{{ entry.description }}</td>
+                        <td>{{ entry.entry_type|replace('_', ' ')|title }}</td>
+                        <td>{{ entry.category|replace('_', ' ')|title }}</td>
+                        <td>{{ entry.amount }}</td>
+                        <td>{% if entry.quantity %}{{ entry.quantity }} {{ entry.unit or '' }}{% else %}—{% endif %}</td>
+                        <td>{{ (entry.confidence * 100)|round|int }}%</td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              {% endif %}
+
+              {% if item.raw_text %}
+              <details class="bookkeeping-raw-text">
+                <summary>Raw Transcription</summary>
+                <pre>{{ item.raw_text }}</pre>
+              </details>
+              {% endif %}
+
+              {% if item.quality_flags %}
+              <ul class="bookkeeping-document-card__flags">
+                {% for flag in item.quality_flags %}<li>{{ flag }}</li>{% endfor %}
+              </ul>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            <div class="bk-doc-card__actions">
+              {% if can_manage_bookkeeping and item.has_source_file %}
+              <form method="POST" action="{{ url_for('main.rescan_bookkeeping_document', document_id=document.id) }}" data-bookkeeping-async="true">
+                <button type="submit" class="btn btn-outline btn-sm"><i class="fas fa-rotate-right"></i> Re-scan</button>
+              </form>
+              {% endif %}
+              {% if can_manage_bookkeeping %}
+              <form method="POST" action="{{ url_for('main.delete_bookkeeping_document', document_id=document.id) }}" data-bookkeeping-async="true" data-confirm="Delete {{ document.original_filename }} and its digitized rows?">
+                <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-trash"></i> Delete</button>
+              </form>
+              {% endif %}
+            </div>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="bookkeeping-empty-state">
+    <i class="fas fa-receipt"></i>
+    <p>No bookkeeping documents have been digitized for this CBO yet.</p>
+  </div>
+  {% endif %}
+
+  <!-- Bulk action bar (shown in select mode) -->
+  {% if can_manage_bookkeeping %}
+  <div class="bk-bulk-bar" id="bkBulkBar" hidden>
+    <span class="bk-bulk-bar__count" id="bkBulkCount">0 selected</span>
+    <div class="bk-bulk-bar__actions">
+      <button type="button" class="btn btn-outline btn-sm" id="bkSelectAll"><i class="fas fa-check-double"></i> Select All</button>
+      <label class="bk-bulk-bar__field" for="bkBulkWorkspaceMonth">
+        <span>Workbook Month</span>
+        <input type="month" id="bkBulkWorkspaceMonth" value="{{ bookkeeping_summary.workspace.default_period_key }}">
+      </label>
+      <button type="button" class="btn btn-primary btn-sm" id="bkBulkImportLive" disabled>
+        <i class="fas fa-table-cells-large"></i> Add To Live Bookkeeping
+      </button>
+      <button type="button" class="btn btn-danger btn-sm" id="bkBulkDelete" disabled>
+        <i class="fas fa-trash"></i> Delete Selected
+      </button>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm" id="bkSelectCancel"><i class="fas fa-xmark"></i> Cancel</button>
+  </div>
+  {% endif %}
+
+  <!-- ═══════════════════════════════════════════════════════════
+       AUDIT SECTIONS — clean separated panels
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="bk-audit-grid">
+    <!-- Inventory Audit -->
+    {% if can_manage_bookkeeping %}
+    <div class="bk-audit-panel bk-audit-panel--inventory">
+      <div class="bk-audit-panel__header">
+        <i class="fas fa-boxes-stacked"></i>
+        <div>
+          <span class="bookkeeping-eyebrow">Audit Baseline</span>
+          <h3>Tool Inventory</h3>
+        </div>
+      </div>
+      <form method="POST" action="{{ url_for('main.update_bookkeeping_inventory', cbo_id=cbo.id) }}" class="bk-audit-panel__form" data-bookkeeping-async="true">
+        <div class="bk-audit-panel__input-row">
+          <input id="tool_inventory_total" name="tool_inventory_total" type="number" min="0" step="1" value="{{ cbo.tool_inventory_total if cbo.tool_inventory_total is not none else '' }}" placeholder="Total tools">
+          <button type="submit" class="btn btn-outline btn-sm"><i class="fas fa-shield-halved"></i> Submit</button>
+        </div>
+        {% if cbo.tool_inventory_total is not none %}
+        <p class="bk-audit-panel__current">Current baseline: <strong>{{ cbo.tool_inventory_total }}</strong></p>
+        {% endif %}
+      </form>
+    </div>
+    {% endif %}
+
+    <!-- Donation Audit -->
+    {% if can_manage_bookkeeping %}
+    <div class="bk-audit-panel bk-audit-panel--funding">
+      <div class="bk-audit-panel__header">
+        <i class="fas fa-hand-holding-heart"></i>
+        <div>
+          <span class="bookkeeping-eyebrow">Donation Audit</span>
+          <h3>Grant Verification</h3>
+        </div>
+      </div>
+      <form method="POST" action="{{ url_for('main.upload_funding_audit_document', cbo_id=cbo.id) }}" enctype="multipart/form-data" class="bk-audit-panel__form" data-bookkeeping-async="true">
+        <label class="bk-audit-panel__file-label">
+          <i class="fas fa-file-certificate"></i>
+          <span>Upload grant certificate, award letter, or receipt</span>
+          <input name="funding_document" type="file" accept="image/*,.pdf" required hidden>
+        </label>
+        <div class="bk-audit-panel__fields">
+          <input name="declared_funder_name" type="text" placeholder="Funding organization">
+          <div class="bk-audit-panel__row2">
+            <input name="declared_funding_amount" type="number" min="0" step="0.01" placeholder="Amount (KSh)" required>
+            <input name="declared_working_capital" type="number" min="0" step="0.01" placeholder="Working capital (KSh)" required>
+          </div>
+          <div class="bk-audit-panel__row2">
+            <input name="declared_period_start" type="date">
+            <input name="declared_period_end" type="date">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-outline btn-sm"><i class="fas fa-shield-halved"></i> Verify Document</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       FUNDING AUDIT RESULTS
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="bk-section-label">
+    <span class="bookkeeping-eyebrow">Funding Provenance</span>
+    <h3>Donation &amp; Grant Audit</h3>
+  </div>
+
+  <div class="bk-metrics-ribbon">
+    <div class="bk-metric"><strong>{{ funding_audit_summary.document_count }}</strong><span>Funding Docs</span></div>
+    <div class="bk-metric"><strong>{{ funding_audit_summary.verified_count }}</strong><span>Verified</span></div>
+    <div class="bk-metric bk-metric--warning"><strong>{{ funding_audit_summary.audit_issue_count }}</strong><span>Flags</span></div>
+    <div class="bk-metric"><strong>KSh {{ '%.2f'|format(funding_audit_summary.declared_funding_total) }}</strong><span>Declared</span></div>
+    <div class="bk-metric"><strong>KSh {{ '%.2f'|format(funding_audit_summary.working_capital_total) }}</strong><span>Working Capital</span></div>
+    <div class="bk-metric bk-metric--accent"><strong>KSh {{ '%.2f'|format(funding_audit_summary.observed_charitable_giving_total) }}</strong><span>Observed Giving</span></div>
+  </div>
+
+  <div class="funding-audit-breakdown">
+    <span>Bookkeeping-derived: <strong>KSh {{ '%.2f'|format(funding_audit_summary.bookkeeping_charitable_giving_total) }}</strong></span>
+    <span>Kobo-derived: <strong>KSh {{ '%.2f'|format(funding_audit_summary.kobo_charitable_giving_total) }}</strong></span>
+  </div>
+
+  {% if funding_audit_summary.overall_funding_gap %}
+  <div class="bookkeeping-audit-panel funding-audit-panel--critical">
+    <h4><i class="fas fa-triangle-exclamation"></i> Operational Spend Exceeds Declared Funding</h4>
+    <p>Total charitable giving observed exceeds total declared funding. This should be investigated further.</p>
+  </div>
+  {% endif %}
+
+  {% if funding_audit_summary.documents %}
+  <div class="bookkeeping-document-list funding-audit-document-list">
+    {% for item in funding_audit_summary.documents %}
+    {% set document = item.document %}
+    {% set analysis = item.analysis %}
+    {% set declared = item.declared %}
+    {% set source_verification = item.source_verification %}
+    {% set operational_audit = item.operational_audit %}
+    {% set legitimacy = item.legitimacy %}
+    <article class="bookkeeping-document-card funding-audit-card">
+      <div class="bookkeeping-document-card__header">
+        <div>
+          <span class="bookkeeping-document-card__type">{{ document.document_type.replace('_', ' ')|title }}</span>
+          <h3>{{ document.original_filename }}</h3>
+          <p class="bookkeeping-document-card__subtitle">
+            {{ analysis.get('document_title') or 'Funding evidence document' }}
+            {% if document.extracted_funder_name %} · {{ document.extracted_funder_name }}{% endif %}
+          </p>
+        </div>
+        <div class="bookkeeping-document-card__actions">
+          <span class="bookkeeping-document-card__confidence">{{ (document.verification_confidence * 100)|round|int }}% confidence</span>
+          <span class="funding-audit-status funding-audit-status--{{ document.verification_status }}">{{ document.verification_status.replace('_', ' ')|title }}</span>
+          {% if item.downloadable %}
+          <a href="{{ url_for('main.funding_audit_document_file', document_id=document.id) }}" class="btn btn-outline btn-sm">Open File</a>
+          {% endif %}
+          {% if can_manage_bookkeeping %}
+          <form method="POST" action="{{ url_for('main.delete_funding_audit_document', document_id=document.id) }}" data-bookkeeping-async="true" data-confirm="Delete {{ document.original_filename }} and its funding verification record?">
+            <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-trash"></i> Delete</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      <div class="bookkeeping-document-card__content">
+        <div class="bookkeeping-document-card__detail">
+          <p class="bookkeeping-document-card__summary">{{ document.summary_text or 'No summary was generated.' }}</p>
+          <div class="bookkeeping-document-card__meta">
+            <span><strong>Declared Funder:</strong> {{ document.declared_funder_name or 'Not provided' }}</span>
+            <span><strong>Detected Issuer:</strong> {{ document.extracted_funder_name or 'Not detected' }}</span>
+            <span><strong>Reference:</strong> {{ document.extracted_reference_number or 'Not detected' }}</span>
+            <span><strong>Document Date:</strong> {{ document.document_date or 'Unknown' }}</span>
+            <span><strong>Period:</strong> {{ document.declared_period_start or 'Unknown' }}{% if document.declared_period_end %} to {{ document.declared_period_end }}{% endif %}</span>
+          </div>
+          <div class="funding-audit-totals">
+            <span>Declared Funding: KSh {{ '%.2f'|format(document.declared_funding_amount or 0) }}</span>
+            <span>Declared Working Capital: KSh {{ '%.2f'|format(document.declared_working_capital or 0) }}</span>
+            <span>Detected Funding: KSh {{ '%.2f'|format(analysis.get('extracted_funding_amount', 0) or 0) }}</span>
+          </div>
+          <div class="funding-audit-verification-grid">
+            <div class="funding-audit-verification-card">
+              <h4>Document Authenticity</h4>
+              <p>{{ legitimacy.get('rationale') or 'No authenticity rationale was returned.' }}</p>
+              {% if legitimacy.get('signals') %}
+              <ul class="bookkeeping-audit-list">
+                {% for signal in legitimacy.get('signals') %}<li>{{ signal }}</li>{% endfor %}
+              </ul>
+              {% endif %}
+            </div>
+            <div class="funding-audit-verification-card">
+              <h4>Funder Web Verification</h4>
+              <p>{{ source_verification.get('summary') or 'No public verification summary was returned.' }}</p>
+              {% if item.search_results %}
+              <ul class="funding-audit-search-results">
+                {% for result in item.search_results %}
+                <li>
+                  <a href="{{ result.link }}" target="_blank" rel="noopener">{{ result.title or result.display_link or result.link }}</a>
+                  {% if result.snippet %}<span>{{ result.snippet }}</span>{% endif %}
+                </li>
+                {% endfor %}
+              </ul>
+              {% elif item.search_error %}
+              <p class="bookkeeping-document-card__notes"><strong>Search:</strong> {{ item.search_error }}</p>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bookkeeping-audit-panel {% if operational_audit.get('exceeds_declared_funding') %}funding-audit-panel--critical{% endif %}">
+            <h4>Operational Cross-Check</h4>
+            <p>{{ operational_audit.get('summary') or 'No operational cross-check summary was generated.' }}</p>
+          </div>
+          {% if item.issues %}
+          <div class="bookkeeping-audit-panel">
+            <h4>Audit Flags</h4>
+            <ul class="bookkeeping-audit-list">
+              {% for issue in item.issues %}<li>{{ issue.message }}</li>{% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+          {% if item.quality_flags %}
+          <ul class="bookkeeping-document-card__flags">
+            {% for flag in item.quality_flags %}<li>{{ flag }}</li>{% endfor %}
+          </ul>
+          {% endif %}
+          {% if item.raw_text %}
+          <details class="bookkeeping-raw-text">
+            <summary>Raw Funding Transcription</summary>
+            <pre>{{ item.raw_text }}</pre>
+          </details>
+          {% endif %}
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="bookkeeping-empty-state">
+    <i class="fas fa-hand-holding-heart"></i>
+    <p>No grant or donation verification documents have been uploaded for this CBO yet.</p>
+  </div>
+  {% endif %}
+
+  </div>
+  {% endif %}
+
+</section>

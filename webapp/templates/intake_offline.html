@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline Intake · Kumbu Connect</title>
+  <meta name="theme-color" content="#ac4e2d">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  <style>
+    :root {
+      --intake-ink: #221916;
+      --intake-muted: #6c5a52;
+      --intake-border: rgba(34, 25, 22, 0.12);
+      --intake-panel: rgba(255, 251, 246, 0.92);
+      --intake-panel-strong: rgba(255, 247, 237, 0.98);
+      --intake-accent: #ac4e2d;
+      --intake-accent-soft: #f8dfd2;
+      --intake-accent-deep: #7e3013;
+      --intake-success: #20654b;
+      --intake-success-soft: #daf0e6;
+      --intake-warn: #8e5a18;
+      --intake-warn-soft: #f7e4c6;
+      --intake-error: #8a2f2f;
+      --intake-error-soft: #f8dddd;
+      --intake-shadow: 0 24px 70px rgba(73, 38, 22, 0.12);
+      --intake-bg: linear-gradient(180deg, #f6e8dc 0%, #f8f4ee 42%, #e8efe8 100%);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body.intake-offline-page {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--intake-ink);
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.75), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(172, 78, 45, 0.12), transparent 28%),
+        var(--intake-bg);
+    }
+
+    .intake-offline-shell {
+      width: min(1260px, calc(100vw - 2rem));
+      margin: 0 auto;
+      padding: 1.4rem 0 3rem;
+    }
+
+    .intake-offline-hero,
+    .intake-offline-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 30px;
+      border: 1px solid var(--intake-border);
+      background: var(--intake-panel);
+      box-shadow: var(--intake-shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .intake-offline-hero {
+      padding: 1.6rem;
+    }
+
+    .intake-offline-hero::after {
+      content: "";
+      position: absolute;
+      right: -8%;
+      bottom: -26%;
+      width: 320px;
+      height: 320px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(172, 78, 45, 0.15), transparent 70%);
+      pointer-events: none;
+    }
+
+    .intake-offline-hero__top,
+    .intake-offline-card__header,
+    .intake-offline-toolbar,
+    .intake-offline-upload-card__header,
+    .intake-offline-queue-item {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .intake-offline-form__actions,
+    .intake-offline-badges,
+    .intake-offline-meta,
+    .intake-offline-queue-item__actions,
+    .intake-offline-file-chip__meta,
+    .intake-offline-help-list {
+      display: flex;
+      gap: 0.7rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .intake-offline-eyebrow,
+    .intake-offline-card__eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.32rem 0.68rem;
+      border-radius: 999px;
+      background: rgba(172, 78, 45, 0.1);
+      color: var(--intake-accent-deep);
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .intake-offline-hero h1,
+    .intake-offline-card h2,
+    .intake-offline-card h3 {
+      margin: 0;
+      letter-spacing: -0.03em;
+    }
+
+    .intake-offline-hero h1 {
+      margin-top: 0.6rem;
+      font-size: clamp(2.1rem, 4.6vw, 4rem);
+      line-height: 0.95;
+      max-width: 11ch;
+    }
+
+    .intake-offline-hero p,
+    .intake-offline-card p,
+    .intake-offline-note,
+    .intake-offline-help-step,
+    .intake-offline-empty,
+    .intake-offline-file-chip__hint,
+    .intake-offline-queue-item__meta {
+      color: var(--intake-muted);
+    }
+
+    .intake-offline-hero p {
+      max-width: 66ch;
+      margin: 0.9rem 0 0;
+      line-height: 1.65;
+      font-size: 1rem;
+    }
+
+    .intake-offline-pill,
+    .intake-offline-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.55rem 0.92rem;
+      border-radius: 999px;
+      border: 1px solid var(--intake-border);
+      background: rgba(255, 255, 255, 0.78);
+      font-size: 0.88rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .intake-offline-pill.is-online,
+    .intake-offline-pill.is-ready,
+    .intake-offline-pill.is-success {
+      background: var(--intake-success-soft);
+      border-color: rgba(32, 101, 75, 0.24);
+      color: var(--intake-success);
+    }
+
+    .intake-offline-pill.is-offline,
+    .intake-offline-pill.is-warning {
+      background: var(--intake-warn-soft);
+      border-color: rgba(142, 90, 24, 0.22);
+      color: var(--intake-warn);
+    }
+
+    .intake-offline-pill.is-error {
+      background: var(--intake-error-soft);
+      border-color: rgba(138, 47, 47, 0.24);
+      color: var(--intake-error);
+    }
+
+    .intake-offline-note {
+      margin: 0;
+      font-size: 0.94rem;
+      line-height: 1.55;
+    }
+
+    .intake-offline-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.82fr);
+      gap: 1rem;
+      margin-top: 1rem;
+      align-items: start;
+    }
+
+    .intake-offline-card {
+      padding: 1.35rem;
+    }
+
+    .intake-offline-card--tall {
+      min-height: 280px;
+    }
+
+    .intake-offline-form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.85rem;
+      margin-top: 1rem;
+    }
+
+    .intake-offline-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+
+    .intake-offline-field--long_text,
+    .intake-offline-field--wide {
+      grid-column: 1 / -1;
+    }
+
+    .intake-offline-field label,
+    .intake-offline-upload-card label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      font-size: 0.94rem;
+      font-weight: 700;
+      color: var(--intake-ink);
+    }
+
+    .intake-offline-required {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: rgba(172, 78, 45, 0.12);
+      color: var(--intake-accent-deep);
+      font-size: 0.72rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .intake-offline-hint {
+      font-size: 0.86rem;
+      color: var(--intake-muted);
+      line-height: 1.45;
+      font-weight: 500;
+    }
+
+    .intake-offline-page input[type="text"],
+    .intake-offline-page input[type="email"],
+    .intake-offline-page textarea,
+    .intake-offline-page select {
+      width: 100%;
+      border: 1px solid rgba(34, 25, 22, 0.14);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.94);
+      padding: 0.9rem 1rem;
+      font: inherit;
+      color: var(--intake-ink);
+      transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+    }
+
+    .intake-offline-page textarea {
+      min-height: 132px;
+      resize: vertical;
+      line-height: 1.55;
+    }
+
+    .intake-offline-page input:focus,
+    .intake-offline-page textarea:focus,
+    .intake-offline-page select:focus {
+      outline: none;
+      border-color: rgba(172, 78, 45, 0.48);
+      box-shadow: 0 0 0 4px rgba(172, 78, 45, 0.12);
+      transform: translateY(-1px);
+    }
+
+    .intake-offline-upload-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.9rem;
+      margin-top: 1.1rem;
+    }
+
+    .intake-offline-upload-card {
+      padding: 1rem;
+      border-radius: 22px;
+      border: 1px dashed rgba(34, 25, 22, 0.18);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(251, 241, 235, 0.82));
+    }
+
+    .intake-offline-upload-card__header h3 {
+      font-size: 1.02rem;
+    }
+
+    .intake-offline-upload-card p {
+      margin: 0.35rem 0 0;
+      line-height: 1.55;
+      font-size: 0.92rem;
+    }
+
+    .intake-offline-file-input {
+      margin-top: 0.9rem;
+    }
+
+    .intake-offline-file-input input {
+      display: block;
+      width: 100%;
+      padding: 0.85rem;
+      border-radius: 16px;
+      border: 1px dashed rgba(172, 78, 45, 0.28);
+      background: rgba(255, 255, 255, 0.8);
+    }
+
+    .intake-offline-file-list {
+      display: grid;
+      gap: 0.65rem;
+      margin-top: 0.9rem;
+    }
+
+    .intake-offline-form__actions {
+      margin-top: 1rem;
+      justify-content: flex-end;
+    }
+
+    .intake-offline-file-chip {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.75rem;
+      align-items: start;
+      padding: 0.85rem 0.9rem;
+      border-radius: 16px;
+      border: 1px solid rgba(34, 25, 22, 0.08);
+      background: rgba(255, 255, 255, 0.86);
+    }
+
+    .intake-offline-file-chip__title {
+      margin: 0;
+      font-weight: 700;
+      font-size: 0.94rem;
+      word-break: break-word;
+    }
+
+    .intake-offline-file-chip__hint {
+      margin: 0.28rem 0 0;
+      font-size: 0.86rem;
+      line-height: 1.4;
+    }
+
+    .intake-offline-guidance {
+      margin-top: 1rem;
+      padding: 1rem;
+      border-radius: 22px;
+      border: 1px solid rgba(34, 25, 22, 0.08);
+      background: rgba(248, 244, 238, 0.9);
+    }
+
+    .intake-offline-guidance ul {
+      margin: 0.8rem 0 0;
+      padding-left: 1rem;
+    }
+
+    .intake-offline-guidance li {
+      margin: 0 0 0.7rem;
+      color: var(--intake-muted);
+      line-height: 1.55;
+    }
+
+    .intake-offline-guidance strong {
+      color: var(--intake-ink);
+    }
+
+    .intake-offline-status {
+      margin-top: 1rem;
+      padding: 1rem 1.05rem;
+      border-radius: 18px;
+      background: rgba(248, 244, 233, 0.96);
+      border: 1px solid rgba(34, 25, 22, 0.08);
+      line-height: 1.55;
+      font-size: 0.94rem;
+    }
+
+    .intake-offline-status[data-tone="success"] {
+      background: var(--intake-success-soft);
+      border-color: rgba(32, 101, 75, 0.24);
+      color: var(--intake-success);
+    }
+
+    .intake-offline-status[data-tone="warning"] {
+      background: var(--intake-warn-soft);
+      border-color: rgba(142, 90, 24, 0.2);
+      color: var(--intake-warn);
+    }
+
+    .intake-offline-status[data-tone="error"] {
+      background: var(--intake-error-soft);
+      border-color: rgba(138, 47, 47, 0.22);
+      color: var(--intake-error);
+    }
+
+    .intake-offline-queue {
+      display: grid;
+      gap: 0.8rem;
+      margin-top: 1rem;
+    }
+
+    .intake-offline-queue-item {
+      padding: 1rem;
+      border-radius: 20px;
+      border: 1px solid var(--intake-border);
+      background: rgba(255, 255, 255, 0.82);
+    }
+
+    .intake-offline-queue-item.is-syncing {
+      border-color: rgba(32, 101, 75, 0.26);
+      background: rgba(218, 240, 230, 0.76);
+    }
+
+    .intake-offline-queue-item.is-failed {
+      border-color: rgba(138, 47, 47, 0.22);
+      background: rgba(248, 221, 221, 0.72);
+    }
+
+    .intake-offline-queue-item__title {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: -0.02em;
+    }
+
+    .intake-offline-queue-item__meta {
+      margin: 0.4rem 0 0;
+      line-height: 1.5;
+      font-size: 0.9rem;
+    }
+
+    .intake-offline-queue-item__error {
+      margin-top: 0.65rem;
+      color: var(--intake-error);
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+
+    .intake-offline-empty {
+      margin-top: 1rem;
+      text-align: center;
+      padding: 1.1rem 0.4rem;
+      font-size: 0.95rem;
+      line-height: 1.55;
+    }
+
+    .intake-offline-help {
+      display: grid;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .intake-offline-help-step {
+      padding: 0.95rem 1rem;
+      border-radius: 18px;
+      border: 1px solid rgba(34, 25, 22, 0.08);
+      background: rgba(255, 255, 255, 0.72);
+      line-height: 1.55;
+    }
+
+    .intake-offline-help-step strong {
+      display: block;
+      margin-bottom: 0.2rem;
+      color: var(--intake-ink);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      min-height: 44px;
+      padding: 0.75rem 1rem;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--intake-ink);
+      font: inherit;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+    }
+
+    .btn:hover,
+    .btn:focus-visible {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px rgba(34, 25, 22, 0.12);
+      outline: none;
+    }
+
+    .btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.65;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #b7522f, #8d381a);
+      color: #fff8f2;
+    }
+
+    .btn-outline {
+      border-color: rgba(34, 25, 22, 0.12);
+      background: rgba(255, 255, 255, 0.84);
+    }
+
+    .btn-danger {
+      border-color: rgba(138, 47, 47, 0.2);
+      color: var(--intake-error);
+      background: rgba(248, 221, 221, 0.9);
+    }
+
+    .btn-xs {
+      min-height: 36px;
+      padding: 0.52rem 0.8rem;
+      font-size: 0.86rem;
+    }
+
+    @media (max-width: 980px) {
+      .intake-offline-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .intake-offline-form-grid,
+      .intake-offline-upload-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .intake-offline-shell {
+        width: min(100vw - 1rem, 100%);
+        padding-bottom: 2rem;
+      }
+
+      .intake-offline-hero,
+      .intake-offline-card {
+        border-radius: 24px;
+      }
+
+      .intake-offline-hero,
+      .intake-offline-card {
+        padding: 1rem;
+      }
+
+      .intake-offline-form__actions .btn {
+        width: 100%;
+      }
+
+      .intake-offline-file-chip,
+      .intake-offline-queue-item {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body class="intake-offline-page">
+  <main class="intake-offline-shell">
+    <section class="intake-offline-hero">
+      <div class="intake-offline-hero__top">
+        <div>
+          <span class="intake-offline-eyebrow">Offline Intake</span>
+          <h1>Community Tool Hub</h1>
+          <p>Use this page to create a new CBO profile. The organisation details entered below determine the account and workspace Kumbu provisions after sync, while drafts and uploads stay on this device when the network drops.</p>
+        </div>
+        <div class="intake-offline-badges">
+          <span id="intakeConnectivityBadge" class="intake-offline-pill">Checking connection</span>
+          <span id="intakeOfflineReadyBadge" class="intake-offline-pill">Preparing offline storage</span>
+          <span id="intakeQueueCountBadge" class="intake-offline-pill">0 queued</span>
+        </div>
+      </div>
+
+      <div class="intake-offline-meta" style="margin-top:1rem;">
+        <span class="intake-offline-chip">Link lifetime {{ intake_offline.expires_in_minutes // 60 // 24 if intake_offline.expires_in_minutes else 0 }} day{% if intake_offline.expires_in_minutes // 60 // 24 != 1 %}s{% endif %}</span>
+        <p id="intakeLastSyncNote" class="intake-offline-note">No sync completed on this device yet.</p>
+      </div>
+
+    </section>
+
+    <div class="intake-offline-grid">
+      <section class="intake-offline-card intake-offline-card--tall">
+        <div class="intake-offline-card__header">
+          <div>
+            <span class="intake-offline-card__eyebrow">Intake Form</span>
+            <h2>Capture the full CBO profile</h2>
+          </div>
+          <p class="intake-offline-note" style="max-width:30ch;">Every field below can be completed offline. Drafts save automatically on this device while you work.</p>
+        </div>
+
+        <form id="intakeOfflineForm" novalidate>
+          <div class="intake-offline-form-grid">
+            {% for field in offline_payload.form.fields %}
+              <div class="intake-offline-field{% if field.field_type == 'long_text' %} intake-offline-field--long_text{% endif %}">
+                <label for="field-{{ field.id }}">
+                  <span>{{ field.title }}</span>
+                  {% if field.required %}<span class="intake-offline-required">Required</span>{% endif %}
+                </label>
+                {% if field.id == 'email_address' %}
+                  <span class="intake-offline-hint">Recommended so Kumbu can pre-build the CBO login after sync.</span>
+                {% endif %}
+                {% if field.field_type == 'choice' %}
+                  <select id="field-{{ field.id }}" name="{{ field.id }}" data-field-id="{{ field.id }}" {% if field.required %}required{% endif %}>
+                    <option value="">Select an option</option>
+                    {% for choice in field.choices %}
+                      <option value="{{ choice }}">{{ choice }}</option>
+                    {% endfor %}
+                  </select>
+                {% elif field.field_type == 'long_text' %}
+                  <textarea id="field-{{ field.id }}" name="{{ field.id }}" data-field-id="{{ field.id }}" {% if field.required %}required{% endif %}></textarea>
+                {% else %}
+                  <input id="field-{{ field.id }}" type="text" name="{{ field.id }}" data-field-id="{{ field.id }}" {% if field.required %}required{% endif %} autocomplete="off">
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+
+          <div class="intake-offline-upload-grid">
+            {% for upload_field in offline_payload.form.upload_fields %}
+              <section class="intake-offline-upload-card">
+                <div class="intake-offline-upload-card__header">
+                  <div>
+                    <h3>{{ upload_field.title }}</h3>
+                    <p>{{ upload_field.description }}</p>
+                  </div>
+                </div>
+                <div class="intake-offline-file-input">
+                  <label for="upload-{{ upload_field.id }}">Choose files to keep on this device</label>
+                  <input
+                    id="upload-{{ upload_field.id }}"
+                    type="file"
+                    data-upload-field="{{ upload_field.id }}"
+                    {% if upload_field.accept %}accept="{{ upload_field.accept }}"{% endif %}
+                    {% if upload_field.multiple %}multiple{% endif %}
+                  >
+                </div>
+                <div class="intake-offline-file-list" id="draftFiles-{{ upload_field.id }}">
+                  <p class="intake-offline-empty">No files saved on this device yet.</p>
+                </div>
+              </section>
+            {% endfor %}
+          </div>
+
+          <div class="intake-offline-form__actions">
+            <button type="button" class="btn btn-primary" id="intakeQueueSubmitBtn">Submit</button>
+          </div>
+
+          <section class="intake-offline-guidance">
+            <span class="intake-offline-card__eyebrow">Field Notes</span>
+            <ul>
+              {% for item in offline_payload.form.guidance_items %}
+                <li><strong>{{ item.title }}</strong><br>{{ item.description }}</li>
+              {% endfor %}
+            </ul>
+          </section>
+
+          <p id="intakeSyncStatusMessage" class="intake-offline-status" data-tone="info">Drafts are saved automatically on this device. Submit when you are ready to queue everything for Kumbu.</p>
+        </form>
+      </section>
+
+      <div style="display:grid;gap:1rem;">
+        <aside class="intake-offline-card">
+          <div class="intake-offline-card__header">
+            <div>
+              <span class="intake-offline-card__eyebrow">Outbox</span>
+              <h2>Queued submissions</h2>
+            </div>
+            <p class="intake-offline-note" style="max-width:20ch;">Each queued record includes its uploads and will retry automatically when the device reconnects.</p>
+          </div>
+          <div id="intakeQueueList" class="intake-offline-queue">
+            <p class="intake-offline-empty">No queued submissions yet.</p>
+          </div>
+        </aside>
+
+        <aside class="intake-offline-card">
+          <div class="intake-offline-card__header">
+            <div>
+              <span class="intake-offline-card__eyebrow">How It Works</span>
+              <h2>Offline workflow</h2>
+            </div>
+          </div>
+          <div class="intake-offline-help">
+            <div class="intake-offline-help-step">
+              <strong>1. Capture everything on one device</strong>
+              Fill the intake form, add photos, and attach bookkeeping images even when there is no reliable signal.
+            </div>
+            <div class="intake-offline-help-step">
+              <strong>2. Queue the submission locally</strong>
+              Kumbu stores the full payload in local offline storage so the browser can be closed and reopened later.
+            </div>
+            <div class="intake-offline-help-step">
+              <strong>3. Reconnect and let sync finish</strong>
+              Once online, the app pushes the intake answers and files into the same Kumbu provisioning flow used by the Google Form sync.
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <script id="intakeOfflineBootstrap" type="application/json">{{ offline_payload|tojson }}</script>
+  <script src="{{ url_for('static', filename='js/intake_offline_app.js') }}"></script>
+</body>
+</html>

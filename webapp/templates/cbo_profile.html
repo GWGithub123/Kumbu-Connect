@@ -1,8 +1,25 @@
 {% extends "base.html" %}
 {% block title %}{{ profile.get('name', cbo.name) }} — Kumbu Connect{% endblock %}
 
+{% block head %}
+<style>
+  .activity-tabs { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 1.5rem 0 1rem; }
+  .activity-tab { border: 1px solid var(--border-color, #cbd5e1); background: #fff; color: var(--text-color, #0f172a); border-radius: 999px; padding: 0.7rem 1rem; font-weight: 600; text-decoration: none; }
+  .activity-tab.is-active { background: #0f172a; color: #fff; border-color: #0f172a; }
+  .embedded-layout { background: transparent; }
+  .embedded-layout .container--profile-wide { width: min(100%, 1600px); padding-top: 0; padding-bottom: 0; }
+  .embedded-layout .profile-page { padding: 0 0 1.5rem; }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container">
+{% set embedded_layout = embedded_layout|default(false) %}
+{% set isolated_view = isolated_view or '' %}
+{% set isolated_profile = isolated_view == 'profile' %}
+{% set isolated_bookkeeping_live = isolated_view == 'bookkeeping-live' %}
+{% set isolated_bookkeeping_digitized = isolated_view == 'bookkeeping-digitized' %}
+{% set isolated_bookkeeping = isolated_bookkeeping_live or isolated_bookkeeping_digitized %}
+<div class="container container--profile-wide">
 
   <!-- ── PROFILE ONE-PAGER ────────────────────────────────────── -->
   <div class="profile-page">
@@ -13,30 +30,46 @@
        are not visible outside the branch, so we set top-level defaults
        and use a lookup dict to override them. #}
     {% set _type_labels = {
+      'community':  ['Total Programs',      'People Reached',      'Tracked Assets',           'Avg Activity Duration',   'Follow-Up Rate',   'Top Activity'],
       'education':  ['Total Sessions',      'Students Served',   'Resources in Catalogue', 'Avg Session Duration',   'On-Time Returns',  'Most-Used Resource'],
       'healthcare': ['Total Services',      'Patients Served',   'Equipment Types',        'Avg Treatment Duration', 'Good Outcomes',    'Top Service'],
       'agriculture':['Total Distributions', 'Farmers Reached',   'Input Types',            'Avg Cycle (days)',       'Compliance Rate',  'Top Input'],
       'water':      ['Total Interventions', 'Households Served', 'Intervention Types',     'Avg Duration (days)',    'Success Rate',     'Top Intervention'],
       'tools':      ['Total Rentals',       'Unique Borrowers',  'Tools in Inventory',     'Avg Rental Duration',    'On-Time Returns',  'Most Popular Tool']
     } %}
-    {% set ctype = (cbo.cbo_identifier or 'tools') | lower %}
-    {% set _lbls = _type_labels.get(ctype, _type_labels['tools']) %}
+    {% set _finance_labels = {
+      'community': ['Annual Budget', 'Debt / Liabilities', 'Annual Expenses', 'Cash Reserves'],
+      'education': ['Total Revenue', 'Avg Program Fee', 'Operating Costs', 'Reserve Funds'],
+      'healthcare': ['Total Revenue', 'Avg Service Fee', 'Operating Costs', 'Reserve Funds'],
+      'agriculture': ['Total Revenue', 'Avg Input Fee', 'Operating Costs', 'Reserve Funds'],
+      'water': ['Total Revenue', 'Avg Tariff', 'Operating Costs', 'Reserve Funds'],
+      'tools': ['Total Revenue', 'Avg Rental Fee', 'Maintenance', 'Damage Fees']
+    } %}
+    {% set ctype = (cbo.cbo_identifier or 'community') | lower %}
+    {% set _lbls = _type_labels.get(ctype, _type_labels['community']) %}
+    {% set _fin_lbls = _finance_labels.get(ctype, _finance_labels['community']) %}
     {% set lbl_rentals   = _lbls[0] %}
     {% set lbl_borrowers = _lbls[1] %}
     {% set lbl_items     = _lbls[2] %}
     {% set lbl_duration  = _lbls[3] %}
     {% set lbl_returns   = _lbls[4] %}
     {% set lbl_popular   = _lbls[5] %}
+    {% set lbl_fin_total = _fin_lbls[0] %}
+    {% set lbl_fin_liabilities = _fin_lbls[1] %}
+    {% set lbl_fin_expenses = _fin_lbls[2] %}
+    {% set lbl_fin_reserves = _fin_lbls[3] %}
     {% set lead = profile.get('leadership', {}) %}
     {% set fp = profile.get('flagship_project', {}) %}
     {% if not fp and cbo.flagship_summary %}
       {% set fp = _safe_json_inline(cbo.flagship_summary) %}
     {% endif %}
     {% set fin = profile.get('financial_data', {}) %}
+    {% set success = profile.get('success_story', {}) %}
     {% set recent_feedback = community_feedback.recent_quotes[0] if community_feedback.recent_quotes else none %}
     {# Embed labels as a DOM data element — readable from {% block scripts %} which has different scope #}
     <script id="chart-labels" type="application/json">{"rentals": {{ lbl_rentals|tojson }}, "borrowers": {{ lbl_borrowers|tojson }}, "duration": {{ lbl_duration|tojson }}}</script>
 
+    {% if not embedded_layout or isolated_view %}
     <section class="profile-header">
       {# ── Badge + classifications row ── #}
       <div class="header-badges-row">
@@ -70,10 +103,49 @@
       </div>
       <p class="focus-inline"><strong>Focus:</strong> {{ profile.get('focus_areas', cbo.focus_areas) or '—' }}</p>
     </section>
+    {% endif %}
+
+    {% if isolated_view and not embedded_layout %}
+    <div class="activity-tabs" role="navigation" aria-label="SMS activity sections">
+      <a href="{{ url_for('main.community_feedback_cbo_detail', cbo_id=cbo.id) }}" class="activity-tab">SMS Feedback</a>
+      <a href="{{ url_for('main.community_feedback_cbo_detail', cbo_id=cbo.id) }}#google-form-responses" class="activity-tab">Intake Responses</a>
+      <a href="{{ url_for('main.cbo_profile', slug=cbo.slug, isolated='bookkeeping-live') }}" class="activity-tab{% if isolated_bookkeeping_live %} is-active{% endif %}">Bookkeeping Activity</a>
+      <a href="{{ url_for('main.cbo_profile', slug=cbo.slug, isolated='bookkeeping-digitized') }}" class="activity-tab{% if isolated_bookkeeping_digitized %} is-active{% endif %}">Digitized Documents</a>
+      <a href="{{ url_for('main.cbo_profile', slug=cbo.slug, isolated='profile') }}" class="activity-tab{% if isolated_profile %} is-active{% endif %}">CBO Profile</a>
+    </div>
+    {% endif %}
+
+    <!-- ── TAB NAVIGATION ──────────────────────────────────────── -->
+    {% if not isolated_view %}
+    <nav class="profile-tabs" id="profileTabs">
+      <button class="profile-tab active" data-tab="profile" type="button">
+        <i class="fas fa-user-circle"></i> Profile
+      </button>
+      <button class="profile-tab" data-tab="bookkeeping" type="button">
+        <i class="fas fa-file-invoice-dollar"></i> Bookkeeping
+      </button>
+    </nav>
+    {% endif %}
+
+    <!-- ── TAB: PROFILE ────────────────────────────────────────── -->
+    {% if not isolated_bookkeeping %}
+    <div class="profile-tab-panel{% if not isolated_view or isolated_profile %} active{% endif %}" id="tab-profile">
 
     <!-- ── ROW 1: KPI RIBBON (Operational Metrics) ──────────────── -->
+    {% set operational_cards = profile.get('operational_metric_cards', []) %}
     {% set ops = profile.get('operational_metrics', {}) %}
-    {% if ops %}
+    {% if operational_cards %}
+    <section class="profile-section kpi-ribbon">
+      <div class="kpi-grid">
+        {% for card in operational_cards %}
+        <div class="kpi-item{% if card.get('accent') %} accent{% endif %}"{% if card.get('detail') %} title="{{ card.detail }}"{% endif %}>
+          <span class="kpi-value">{{ card.value }}</span>
+          <span class="kpi-label">{{ card.label }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% elif ops %}
     <section class="profile-section kpi-ribbon">
       <div class="kpi-grid">
         <div class="kpi-item">
@@ -124,26 +196,36 @@
               {% endif %}
             </div>
 
-            {% if fin %}
+            {% set financial_cards = profile.get('financial_overview_cards', []) %}
+            {% if financial_cards or fin %}
             <div class="overview-panel overview-panel--tinted">
               <h2><i class="fas fa-coins"></i> Financial Overview</h2>
               <div class="financial-grid-compact">
+                {% if financial_cards %}
+                  {% for card in financial_cards %}
+                  <div class="fin-item"{% if card.get('detail') %} title="{{ card.detail }}"{% endif %}>
+                    <span class="fin-label">{{ card.label }}</span>
+                    <span class="fin-value">{{ card.value }}</span>
+                  </div>
+                  {% endfor %}
+                {% else %}
                 <div class="fin-item">
-                  <span class="fin-label">Total Revenue</span>
+                  <span class="fin-label">{{ lbl_fin_total }}</span>
                   <span class="fin-value">{{ fin.total_revenue }}</span>
                 </div>
                 <div class="fin-item">
-                  <span class="fin-label">Avg Rental Fee</span>
+                  <span class="fin-label">{{ lbl_fin_liabilities }}</span>
                   <span class="fin-value">{{ fin.avg_rental_fee }}</span>
                 </div>
                 <div class="fin-item">
-                  <span class="fin-label">Maintenance</span>
+                  <span class="fin-label">{{ lbl_fin_expenses }}</span>
                   <span class="fin-value">{{ fin.maintenance_costs }}</span>
                 </div>
                 <div class="fin-item">
-                  <span class="fin-label">Damage Fees</span>
+                  <span class="fin-label">{{ lbl_fin_reserves }}</span>
                   <span class="fin-value">{{ fin.damage_fees_collected }}</span>
                 </div>
+                {% endif %}
               </div>
               {% if fin.operational_model %}
                 <p class="fin-note"><strong>Model:</strong> {{ fin.operational_model }}</p>
@@ -203,7 +285,11 @@
 
     <!-- ── FULL-WIDTH: Flagship + Community Feedback + Join Us ── -->
     <section class="profile-section compact overview-section">
-      <div class="overview-split {% if fp and profile.get('join_us') %}overview-split--three{% else %}overview-split--two{% endif %}">
+      {% set overview_panels = namespace(count=1) %}
+      {% if fp %}{% set overview_panels.count = overview_panels.count + 1 %}{% endif %}
+      {% if success and (success.get('summary') or success.get('quote')) %}{% set overview_panels.count = overview_panels.count + 1 %}{% endif %}
+      {% if profile.get('join_us') %}{% set overview_panels.count = overview_panels.count + 1 %}{% endif %}
+      <div class="overview-split {% if overview_panels.count >= 4 %}overview-split--four{% elif overview_panels.count == 3 %}overview-split--three{% else %}overview-split--two{% endif %}">
         {% if fp %}
         <div class="overview-panel flagship">
           <h2><i class="fas fa-rocket"></i> {{ fp.get('title', 'Flagship Project') }}</h2>
@@ -214,6 +300,27 @@
               <li><i class="fas fa-check-circle"></i> <strong>{{ s.label }}:</strong> {{ s.value }}</li>
             {% endfor %}
           </ul>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% if success and (success.get('summary') or success.get('quote')) %}
+        {% set success_summary = success.get('summary', '') %}
+        {% set success_quote = success.get('quote', '') %}
+        <div class="overview-panel story-section success-story-card">
+          <h2><i class="fas fa-seedling"></i> {{ success.get('title', 'Success Story') }}</h2>
+          {% if success_summary and success_summary != success_quote %}
+            <p>{{ success_summary }}</p>
+          {% endif %}
+          {% if success_quote %}
+            <blockquote>
+              <p>"{{ success_quote }}"</p>
+              {% if success.get('attribution') %}
+              <footer>{{ success.get('attribution') }}</footer>
+              {% endif %}
+            </blockquote>
+          {% elif success.get('attribution') %}
+            <p class="governance-note"><em>{{ success.get('attribution') }}</em></p>
           {% endif %}
         </div>
         {% endif %}
@@ -249,7 +356,16 @@
 
     <!-- ── ROW 3: GROWTH CHARTS (2×2 grid) ────────────────────── -->
     {% set growth_data = _safe_json_inline(cbo.growth_metrics_json) %}
-    {% if growth_data and growth_data|length > 0 %}
+    {% set growth_chart_ns = namespace(configs=profile.get('growth_charts', [])) %}
+    {% if not growth_chart_ns.configs %}
+      {% set growth_chart_ns.configs = [
+        {'field': 'rentals', 'label': lbl_rentals, 'value_format': 'number', 'color': '40,167,69'},
+        {'field': 'borrowers', 'label': lbl_borrowers, 'value_format': 'number', 'color': '0,123,255'},
+        {'field': 'revenue', 'label': 'Revenue (KSh)', 'value_format': 'currency', 'color': '255,193,7'},
+        {'field': 'avg_duration', 'label': 'Avg ' ~ lbl_duration, 'value_format': 'number', 'color': '111,66,193'}
+      ] %}
+    {% endif %}
+    {% if growth_data and growth_data|length > 0 and growth_chart_ns.configs %}
     <div class="profile-section-divider" aria-hidden="true">
       <span>Growth &amp; Trends</span>
     </div>
@@ -263,26 +379,13 @@
         </div>
       </div>
       <div class="charts-grid-2x2">
+        {% for chart in growth_chart_ns.configs[:4] %}
         <div class="chart-container">
-          <h3>{{ lbl_rentals }}</h3>
-          <canvas id="rentalsChart"></canvas>
-          <div class="chart-growth-pills" id="pillsRentals"></div>
+          <h3>{{ chart.label }}</h3>
+          <canvas id="growthChart{{ loop.index }}"></canvas>
+          <div class="chart-growth-pills" id="growthPills{{ loop.index }}"></div>
         </div>
-        <div class="chart-container">
-          <h3>{{ lbl_borrowers }}</h3>
-          <canvas id="borrowersChart"></canvas>
-          <div class="chart-growth-pills" id="pillsBorrowers"></div>
-        </div>
-        <div class="chart-container">
-          <h3>Revenue (KSh)</h3>
-          <canvas id="revenueChart"></canvas>
-          <div class="chart-growth-pills" id="pillsRevenue"></div>
-        </div>
-        <div class="chart-container">
-          <h3>Avg {{ lbl_duration }}</h3>
-          <canvas id="durationChart"></canvas>
-          <div class="chart-growth-pills" id="pillsDuration"></div>
-        </div>
+        {% endfor %}
       </div>
     </section>
     {% endif %}
@@ -306,6 +409,7 @@
     {% endif %}
 
     <!-- ── ACTIONS ─────────────────────────────────────────────── -->
+    {% if not isolated_view %}
     <div class="profile-actions">
       {% if own %}
         <div class="kobo-connection-panel {% if cbo.has_kobo_connection %}kobo-connection-panel--connected{% else %}kobo-connection-panel--disconnected{% endif %}">
@@ -333,7 +437,7 @@
           {% endif %}
         </div>
       {% endif %}
-      {% if own or current_user.role == 'funder' %}
+      {% if own or viewer_is_funder %}
         <form method="POST" action="{{ url_for('main.sync_cbo', cbo_id=cbo.id) }}" class="sync-form">
           <button type="submit" class="btn btn-primary btn-lg" id="syncBtn" {% if not cbo.has_kobo_connection %}disabled{% endif %}>
             <i class="fas fa-sync-alt"></i> Sync with KoboToolbox &amp; Refresh AI Profile
@@ -346,54 +450,119 @@
           <p class="last-sync">KoboToolbox sync is disabled for this CBO.</p>
         {% endif %}
       {% endif %}
-      <a href="{{ url_for('main.marketplace') if current_user.role == 'funder' else url_for('main.cbo_dashboard') }}" class="btn btn-outline">
+      <a href="{{ url_for('main.marketplace') if not own else url_for('main.cbo_dashboard') }}" class="btn btn-outline">
         <i class="fas fa-arrow-left"></i> Back
       </a>
     </div>
+    {% endif %}
+
+    </div><!-- end tab-profile -->
+    {% endif %}
+
+    <!-- ── TAB: BOOKKEEPING ────────────────────────────────────── -->
+    {% if not isolated_profile %}
+    <div class="profile-tab-panel{% if isolated_bookkeeping %} active{% endif %}" id="tab-bookkeeping">
+      <div id="bookkeepingSectionRoot">
+        {% set bookkeeping_locked_pane = 'live' if isolated_bookkeeping_live else ('digitized' if isolated_bookkeeping_digitized else '') %}
+        {% include "_bookkeeping_section.html" %}
+      </div>
+    </div><!-- end tab-bookkeeping -->
+    {% endif %}
+
   </div>
 </div>
+
+<!-- ── Document image lightbox ───────────────────────────────── -->
+<div id="bkImageLightbox" class="bk-lightbox" hidden aria-modal="true" role="dialog" aria-label="Document image viewer">
+  <div class="bk-lightbox__backdrop"></div>
+  <div class="bk-lightbox__dialog">
+    <button type="button" class="bk-lightbox__close" aria-label="Close image viewer">
+      <i class="fas fa-times"></i>
+    </button>
+    <img class="bk-lightbox__img" src="" alt="">
+    <span class="bk-lightbox__label"></span>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <!-- Chart.js for growth visualization -->
 {% set growth_data = _safe_json_inline(cbo.growth_metrics_json) %}
-{% if growth_data and growth_data|length > 0 %}
+{% set growth_chart_configs = profile.get('growth_charts', []) %}
+{% if isolated_view not in ['bookkeeping-live', 'bookkeeping-digitized'] and growth_data and growth_data|length > 0 %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script id="growth-json" type="application/json">{{ growth_data|tojson }}</script>
+<script id="growth-chart-config-json" type="application/json">{{ growth_chart_configs[:4]|tojson }}</script>
 <script>
-// ── Raw monthly data ────────────────────────────────────────────
-const rawMonthly = JSON.parse(document.getElementById('growth-json').textContent);
-const chartLabels = JSON.parse(document.getElementById('chart-labels').textContent);
-const LABEL_RENTALS   = chartLabels.rentals;
-const LABEL_BORROWERS = chartLabels.borrowers;
-const LABEL_DURATION  = 'Avg ' + chartLabels.duration;
+window.__kumbuGrowthCharts = window.__kumbuGrowthCharts || [];
 
-// ── Aggregation ─────────────────────────────────────────────────
-function aggregate(period) {
-  if (period === 'monthly') return rawMonthly;
-  const keyFn = period === 'annually'
-    ? m => m.slice(0, 4)
-    : m => { const [y, mo] = m.split('-'); return `${y} Q${Math.ceil(+mo / 3)}`; };
-  const map = {};
-  rawMonthly.forEach(d => {
-    const k = keyFn(d.month);
-    if (!map[k]) map[k] = [];
-    map[k].push(d);
-  });
-  return Object.entries(map).sort(([a],[b]) => a.localeCompare(b)).map(([k, arr]) => ({
-    month:        k,
-    rentals:      arr.reduce((s,d) => s + (d.rentals||0), 0),
-    borrowers:    Math.round(arr.reduce((s,d) => s + (d.borrowers||0), 0) / arr.length),
-    revenue:      arr.reduce((s,d) => s + (d.revenue||0), 0),
-    avg_duration: +(arr.reduce((s,d) => s + (d.avg_duration||0), 0) / arr.length).toFixed(1)
-  }));
+function safeParseJsonNode(id, fallback) {
+  const node = document.getElementById(id);
+  if (!node) return fallback;
+  try {
+    return JSON.parse(node.textContent || 'null') || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
-// ── Growth rate pills (per chart) ──────────────────────────────
+function defaultGrowthChartConfigs(labels) {
+  const resolvedLabels = labels && typeof labels === 'object' ? labels : {};
+  const rentalsLabel = String(resolvedLabels.rentals || 'Tracked Activity');
+  const borrowersLabel = String(resolvedLabels.borrowers || 'People / Orgs Logged');
+  const durationLabel = String(resolvedLabels.duration || 'Activity Duration');
+  return [
+    { field: 'rentals', label: rentalsLabel, value_format: 'number', color: '40,167,69' },
+    { field: 'borrowers', label: borrowersLabel, value_format: 'number', color: '0,123,255' },
+    { field: 'revenue', label: 'Revenue (KSh)', value_format: 'currency', color: '255,193,7' },
+    { field: 'avg_duration', label: 'Avg ' + durationLabel, value_format: 'number', color: '111,66,193' },
+  ];
+}
+
+function isAveragedGrowthField(field) {
+  const normalized = String(field || '');
+  return normalized.startsWith('avg_') || normalized.startsWith('unique_') || normalized === 'borrowers' || normalized === 'avg_duration';
+}
+
+function aggregateGrowthField(arr, field) {
+  const values = arr.map(item => Number(item[field] || 0));
+  if (!values.length) return 0;
+  if (isAveragedGrowthField(field)) {
+    const precision = String(field || '').includes('avg_') || String(field || '').includes('duration') ? 1 : 0;
+    return +(values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(precision);
+  }
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+function aggregateGrowthData(rawMonthly, period, chartConfigs) {
+  if (period === 'monthly') return rawMonthly;
+  const keyFn = period === 'annually'
+    ? month => month.slice(0, 4)
+    : month => {
+        const [year, rawMonth] = month.split('-');
+        return `${year} Q${Math.ceil(Number(rawMonth || 0) / 3)}`;
+      };
+  const grouped = {};
+  rawMonthly.forEach(item => {
+    const key = keyFn(String(item.month || ''));
+    if (!key) return;
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(item);
+  });
+  return Object.entries(grouped).sort(([left], [right]) => left.localeCompare(right)).map(([month, rows]) => {
+    const aggregated = { month };
+    chartConfigs.forEach(config => {
+      aggregated[config.field] = aggregateGrowthField(rows, config.field);
+    });
+    return aggregated;
+  });
+}
+
 function growthRate(data, field, nMonths) {
   if (data.length < nMonths + 1) return null;
-  const recent = data[data.length - 1][field] || 0;
-  const old    = data[data.length - 1 - nMonths][field] || 0;
+  const recent = Number(data[data.length - 1][field] || 0);
+  const old = Number(data[data.length - 1 - nMonths][field] || 0);
   if (!old) return null;
   return ((recent - old) / old * 100).toFixed(1);
 }
@@ -401,84 +570,1520 @@ function growthRate(data, field, nMonths) {
 function renderPillsFor(elId, field, data) {
   const el = document.getElementById(elId);
   if (!el) return;
-  const periods = [{ label:'3M', n:3 }, { label:'6M', n:6 }, { label:'1Y', n:12 }, { label:'2Y', n:24 }];
+  const periods = [{ label: '3M', n: 3 }, { label: '6M', n: 6 }, { label: '1Y', n: 12 }, { label: '2Y', n: 24 }];
   el.innerHTML = periods.map(({ label, n }) => {
-    const r = growthRate(data, field, n);
-    if (r === null) return '';
-    const up = parseFloat(r) >= 0;
-    return `<span class="growth-pill ${up ? 'growth-pill--up' : 'growth-pill--down'}">${label}: <strong>${up ? '+' : ''}${r}%</strong></span>`;
+    const rate = growthRate(data, field, n);
+    if (rate === null) return '';
+    const up = parseFloat(rate) >= 0;
+    return `<span class="growth-pill ${up ? 'growth-pill--up' : 'growth-pill--down'}">${label}: <strong>${up ? '+' : ''}${rate}%</strong></span>`;
   }).join('');
 }
 
-function renderAllPills(data) {
-  renderPillsFor('pillsRentals',   'rentals',      data);
-  renderPillsFor('pillsBorrowers', 'borrowers',    data);
-  renderPillsFor('pillsRevenue',   'revenue',      data);
-  renderPillsFor('pillsDuration',  'avg_duration', data);
-}
-
-// ── Chart factory ───────────────────────────────────────────────
-const baseOpts = {
-  responsive: true, maintainAspectRatio: true,
-  plugins: { legend: { display: false } },
-  scales: { y: { beginAtZero: true } }
-};
-
-function makeDataset(label, data, rgb) {
-  return { label, data, borderColor: `rgb(${rgb})`,
-    backgroundColor: `rgba(${rgb},0.1)`, tension: 0.4, fill: true, pointRadius: 3 };
-}
-
-function makeChart(id, label, field, rgb) {
-  const d = aggregate('monthly');
-  return new Chart(document.getElementById(id), {
-    type: 'line',
-    data: { labels: d.map(x => x.month), datasets: [makeDataset(label, d.map(x => x[field]), rgb)] },
-    options: baseOpts
+function renderAllGrowthPills(chartConfigs, data) {
+  chartConfigs.forEach((config, index) => {
+    renderPillsFor(`growthPills${index + 1}`, config.field, data);
   });
 }
 
-const charts = {
-  rentals:   makeChart('rentalsChart',   LABEL_RENTALS,   'rentals',      '40,167,69'),
-  borrowers: makeChart('borrowersChart', LABEL_BORROWERS, 'borrowers',    '0,123,255'),
-  revenue:   makeChart('revenueChart',   'Revenue (KSh)', 'revenue',      '255,193,7'),
-  duration:  makeChart('durationChart',  LABEL_DURATION,  'avg_duration', '111,66,193')
-};
+function destroyGrowthCharts() {
+  if (!Array.isArray(window.__kumbuGrowthCharts)) {
+    window.__kumbuGrowthCharts = [];
+    return;
+  }
+  window.__kumbuGrowthCharts.forEach(chart => {
+    if (!chart) return;
+    try {
+      chart.destroy();
+    } catch {
+      /* Ignore chart teardown failures during DOM refreshes. */
+    }
+  });
+  window.__kumbuGrowthCharts = [];
+}
 
-renderAllPills(rawMonthly);
+function makeGrowthDataset(config, data, fallbackColor) {
+  const rgb = config.color || fallbackColor;
+  return {
+    label: config.label,
+    data,
+    borderColor: `rgb(${rgb})`,
+    backgroundColor: `rgba(${rgb},0.1)`,
+    tension: 0.4,
+    fill: true,
+    pointRadius: 3,
+  };
+}
 
-// ── Period toggle ───────────────────────────────────────────────
-document.querySelectorAll('.period-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    const d = aggregate(btn.dataset.period);
-    const labels = d.map(x => x.month);
-    [['rentals','rentals'],['borrowers','borrowers'],['revenue','revenue'],['duration','avg_duration']].forEach(([key,field]) => {
-      charts[key].data.labels = labels;
-      charts[key].data.datasets[0].data = d.map(x => x[field]);
-      charts[key].update();
+function initProfileGrowthCharts() {
+  const rawMonthly = safeParseJsonNode('growth-json', []);
+  const chartLabels = safeParseJsonNode('chart-labels', {});
+  const rawChartConfigs = safeParseJsonNode('growth-chart-config-json', []);
+  const chartConfigs = rawChartConfigs.length ? rawChartConfigs : defaultGrowthChartConfigs(chartLabels);
+  destroyGrowthCharts();
+  if (!rawMonthly.length || !chartConfigs.length || typeof Chart === 'undefined') return;
+
+  const fallbackColors = ['40,167,69', '0,123,255', '255,193,7', '111,66,193'];
+  const baseOpts = {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true } },
+  };
+
+  const monthlyData = aggregateGrowthData(rawMonthly, 'monthly', chartConfigs);
+  window.__kumbuGrowthCharts = chartConfigs.map((config, index) => {
+    const canvas = document.getElementById(`growthChart${index + 1}`);
+    if (!canvas) return null;
+    return new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: monthlyData.map(item => item.month),
+        datasets: [makeGrowthDataset(config, monthlyData.map(item => item[config.field] || 0), fallbackColors[index % fallbackColors.length])],
+      },
+      options: baseOpts,
     });
-    // Pills always use raw monthly so rates reflect real compounding
-    renderAllPills(rawMonthly);
+  }).filter(Boolean);
+
+  renderAllGrowthPills(chartConfigs, rawMonthly);
+
+  document.querySelectorAll('.period-btn').forEach(button => {
+    if (button.dataset.growthBound === 'true') return;
+    button.dataset.growthBound = 'true';
+    button.addEventListener('click', () => {
+      document.querySelectorAll('.period-btn').forEach(nextButton => nextButton.classList.remove('active'));
+      button.classList.add('active');
+      const aggregated = aggregateGrowthData(rawMonthly, button.dataset.period || 'monthly', chartConfigs);
+      window.__kumbuGrowthCharts.forEach((chart, index) => {
+        const config = chartConfigs[index] || {};
+        chart.data.labels = aggregated.map(item => item.month);
+        chart.data.datasets[0].data = aggregated.map(item => item[config.field] || 0);
+        chart.update();
+      });
+      renderAllGrowthPills(chartConfigs, rawMonthly);
+    });
   });
-});
+}
+
+initProfileGrowthCharts();
+</script>
+{% else %}
+<script>
+window.__kumbuGrowthCharts = window.__kumbuGrowthCharts || [];
+function initProfileGrowthCharts() {
+  if (!Array.isArray(window.__kumbuGrowthCharts)) {
+    window.__kumbuGrowthCharts = [];
+    return;
+  }
+  window.__kumbuGrowthCharts.forEach(chart => {
+    if (!chart) return;
+    try {
+      chart.destroy();
+    } catch {
+      /* Ignore chart teardown failures when no growth data is available. */
+    }
+  });
+  window.__kumbuGrowthCharts = [];
+}
 </script>
 {% endif %}
 
+{% set cbo_profile_page_config = {
+  'bookkeepingBrowserTimeoutMs': config.get('BOOKKEEPING_BROWSER_TIMEOUT_MS', 300000),
+  'embeddedLayout': embedded_layout|default(false)
+} %}
+<script id="cbo-profile-page-config" type="application/json">{{ cbo_profile_page_config|tojson }}</script>
 <script>
-/* Set score bar width from data-score attribute on the section wrapper */
-document.querySelectorAll('.impact-rationale-section[data-score]').forEach(section => {
-  const bar = section.querySelector('.score-bar--dynamic');
-  if (bar) bar.style.width = section.dataset.score + '%';
-});
+const profilePageConfig = JSON.parse(document.getElementById('cbo-profile-page-config').textContent);
+const bookkeepingBrowserTimeoutMs = Number(profilePageConfig.bookkeepingBrowserTimeoutMs || 300000);
+const embeddedLayoutEnabled = Boolean(profilePageConfig.embeddedLayout);
 
-const syncBtn = document.getElementById('syncBtn');
-if (syncBtn) {
+/* ── Profile / Bookkeeping tab switching ──────────────────────── */
+(function() {
+  const tabs = document.querySelectorAll('.profile-tab');
+  const panels = document.querySelectorAll('.profile-tab-panel');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab;
+      tabs.forEach(t => t.classList.remove('active'));
+      panels.forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      const panel = document.getElementById('tab-' + target);
+      if (panel) panel.classList.add('active');
+      if (target === 'bookkeeping') initBookkeepingAsync();
+    });
+  });
+  // Allow deep-linking via hash
+  if (window.location.hash === '#bookkeeping') {
+    const bkTab = document.querySelector('.profile-tab[data-tab="bookkeeping"]');
+    if (bkTab) bkTab.click();
+  }
+})();
+
+function refreshScoreBars() {
+  document.querySelectorAll('.impact-rationale-section[data-score]').forEach(section => {
+    const bar = section.querySelector('.score-bar--dynamic');
+    if (bar) bar.style.width = section.dataset.score + '%';
+  });
+}
+
+refreshScoreBars();
+
+function bindProfileSyncButton() {
+  const syncBtn = document.getElementById('syncBtn');
+  if (!syncBtn || syncBtn.dataset.bound === 'true') {
+    return;
+  }
+  syncBtn.dataset.bound = 'true';
   syncBtn.closest('form').addEventListener('submit', () => {
     syncBtn.disabled = true;
     syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing…';
   });
+}
+
+bindProfileSyncButton();
+
+let profileRefreshTimer = 0;
+let profileRefreshInFlight = null;
+
+function replaceProfileJsonNode(id, sourceDocument) {
+  const nextNode = sourceDocument.getElementById(id);
+  const currentNode = document.getElementById(id);
+  if (!nextNode) {
+    if (currentNode) currentNode.remove();
+    return;
+  }
+  if (currentNode) {
+    currentNode.textContent = nextNode.textContent;
+    return;
+  }
+  const anchor = document.getElementById('cbo-profile-page-config');
+  const clone = nextNode.cloneNode(true);
+  if (anchor && anchor.parentNode) {
+    anchor.parentNode.insertBefore(clone, anchor);
+    return;
+  }
+  document.body.appendChild(clone);
+}
+
+async function refreshProfileViewFromServer() {
+  const currentProfileTab = document.getElementById('tab-profile');
+  const currentHeader = document.querySelector('.profile-header');
+  if (!currentProfileTab && !currentHeader) return;
+  if (profileRefreshInFlight) return profileRefreshInFlight;
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete('isolated');
+  url.searchParams.delete('embedded');
+  url.searchParams.set('_profile_refresh', String(Date.now()));
+
+  profileRefreshInFlight = fetch(url.toString(), {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  }).then(async response => {
+    if (!response.ok) {
+      throw new Error('Could not refresh the profile view.');
+    }
+    const html = await response.text();
+    const nextDocument = new DOMParser().parseFromString(html, 'text/html');
+    const nextProfileTab = nextDocument.getElementById('tab-profile');
+    const nextHeader = nextDocument.querySelector('.profile-header');
+
+    if (currentProfileTab && nextProfileTab) {
+      currentProfileTab.innerHTML = nextProfileTab.innerHTML;
+    }
+    if (currentHeader && nextHeader) {
+      currentHeader.innerHTML = nextHeader.innerHTML;
+    }
+
+    replaceProfileJsonNode('growth-json', nextDocument);
+    replaceProfileJsonNode('growth-chart-config-json', nextDocument);
+    refreshScoreBars();
+    bindProfileSyncButton();
+    initProfileGrowthCharts();
+  }).catch(error => {
+    console.warn(error);
+  }).finally(() => {
+    profileRefreshInFlight = null;
+  });
+
+  return profileRefreshInFlight;
+}
+
+function scheduleProfileRefresh(delayMs = 250) {
+  window.clearTimeout(profileRefreshTimer);
+  profileRefreshTimer = window.setTimeout(() => {
+    void refreshProfileViewFromServer();
+  }, Math.max(0, delayMs));
+}
+
+function initBookkeepingAsync() {
+  const root = document.getElementById('bookkeepingSectionRoot');
+  if (!root) return;
+  const section = root.querySelector('#bookkeepingSection');
+  if (!section || section.dataset.asyncInitialized === 'true') return;
+  section.dataset.asyncInitialized = 'true';
+  const cboId = String(section.dataset.cboId || '').trim();
+  const workspaceFocusStorageKey = cboId ? 'cbo-' + cboId + '-workspace-focus' : '';
+
+  function readWorkspaceFocus() {
+    if (!workspaceFocusStorageKey) return null;
+    try {
+      const rawValue = window.sessionStorage.getItem(workspaceFocusStorageKey);
+      return rawValue ? JSON.parse(rawValue) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeWorkspaceFocus(focus) {
+    if (!workspaceFocusStorageKey || !focus) return;
+    const typeKey = String(focus.type_key || focus.typeKey || '').trim();
+    const periodKey = String(focus.period_key || focus.periodKey || '').trim();
+    if (!typeKey) return;
+    try {
+      window.sessionStorage.setItem(workspaceFocusStorageKey, JSON.stringify({ typeKey, periodKey }));
+    } catch {
+      /* Ignore session storage failures. */
+    }
+  }
+
+  function clearWorkspaceFocus() {
+    if (!workspaceFocusStorageKey) return;
+    try {
+      window.sessionStorage.removeItem(workspaceFocusStorageKey);
+    } catch {
+      /* Ignore session storage failures. */
+    }
+  }
+
+  function applyPendingWorkspaceFocus() {
+    const focus = readWorkspaceFocus();
+    if (!focus || !focus.typeKey) return;
+
+    const folders = Array.from(section.querySelectorAll('.bk-live-folder[data-workspace-type-key]'));
+    const targetFolder = folders.find(folder => String(folder.dataset.workspaceTypeKey || '').trim() === focus.typeKey);
+    if (!targetFolder) {
+      clearWorkspaceFocus();
+      return;
+    }
+
+    folders.forEach(folder => {
+      folder.open = folder === targetFolder;
+    });
+
+    const periodSelect = targetFolder.querySelector('[data-workspace-period-select]');
+    if (periodSelect) {
+      const periodKey = String(focus.periodKey || '').trim();
+      const optionValues = Array.from(periodSelect.options).map(option => String(option.value || ''));
+      if (periodKey && optionValues.includes(periodKey)) {
+        periodSelect.value = periodKey;
+        const storageKey = String(periodSelect.dataset.periodStorageKey || '').trim();
+        if (storageKey) {
+          try {
+            window.sessionStorage.setItem(storageKey, periodKey);
+          } catch {
+            /* Ignore session storage failures. */
+          }
+        }
+        periodSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+
+    clearWorkspaceFocus();
+    targetFolder.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  (function initBookkeepingPanes() {
+    const buttons = Array.from(section.querySelectorAll('[data-bk-pane-target]'));
+    const panes = Array.from(section.querySelectorAll('[data-bk-pane]'));
+    if (!buttons.length || !panes.length) return;
+
+    const storageKey = section.dataset.paneStorageKey || '';
+    const defaultPane = section.dataset.defaultPane || buttons[0].dataset.bkPaneTarget || 'digitized';
+
+    function readStoredPane() {
+      if (!storageKey) return defaultPane;
+      try {
+        const stored = window.sessionStorage.getItem(storageKey);
+        return buttons.some(button => button.dataset.bkPaneTarget === stored) ? stored : defaultPane;
+      } catch {
+        return defaultPane;
+      }
+    }
+
+    function writeStoredPane(paneName) {
+      if (!storageKey) return;
+      try {
+        window.sessionStorage.setItem(storageKey, paneName);
+      } catch {
+        /* Ignore session storage failures. */
+      }
+    }
+
+    function activatePane(paneName) {
+      const nextPane = buttons.some(button => button.dataset.bkPaneTarget === paneName) ? paneName : defaultPane;
+      buttons.forEach(button => {
+        const active = button.dataset.bkPaneTarget === nextPane;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      panes.forEach(pane => {
+        const active = pane.dataset.bkPane === nextPane;
+        pane.hidden = !active;
+        pane.classList.toggle('is-active', active);
+      });
+      writeStoredPane(nextPane);
+    }
+
+    buttons.forEach(button => {
+      if (button.dataset.paneBound === 'true') return;
+      button.dataset.paneBound = 'true';
+      button.addEventListener('click', () => activatePane(button.dataset.bkPaneTarget || defaultPane));
+    });
+
+    activatePane(readStoredPane());
+  })();
+
+  (function initWorkspaceModals() {
+    const modals = Array.from(section.querySelectorAll('[data-workspace-modal]'));
+    if (!modals.length) return;
+
+    const columnRowTemplate = section.querySelector('#bkWorkspaceColumnRowTemplate');
+    const periodRowTemplate = section.querySelector('#bkWorkspacePeriodRowTemplate');
+
+    function syncModalOpenState() {
+      const hasVisibleModal = modals.some(modal => !modal.hidden);
+      const hasVisibleLightbox = Boolean(document.querySelector('.bk-lightbox:not([hidden])'));
+      document.body.classList.toggle('modal-open', hasVisibleModal || hasVisibleLightbox);
+    }
+
+    function openWorkspaceModal(modalName) {
+      const targetModal = modals.find(modal => modal.dataset.workspaceModal === modalName);
+      if (!targetModal) return;
+      targetModal.hidden = false;
+      syncModalOpenState();
+      window.setTimeout(() => {
+        const focusTarget = targetModal.querySelector('input, select, textarea, button');
+        if (focusTarget) focusTarget.focus();
+      }, 0);
+    }
+
+    function closeWorkspaceModal(targetModal) {
+      if (!targetModal) return;
+      targetModal.hidden = true;
+      syncModalOpenState();
+    }
+
+    function updateDefaultWorksheetPeriod(modal) {
+      if (!modal) return;
+      const defaultInput = modal.querySelector('[data-default-worksheet-period]');
+      if (!defaultInput) return;
+      const nextValue = Array.from(modal.querySelectorAll('[data-worksheet-period-input]'))
+        .map(input => String(input.value || '').trim())
+        .find(Boolean) || '';
+      defaultInput.value = nextValue;
+    }
+
+    function appendWorkspaceColumnRow() {
+      const list = section.querySelector('[data-workspace-column-list]');
+      if (!list || !columnRowTemplate || !columnRowTemplate.content.firstElementChild) return;
+      const row = columnRowTemplate.content.firstElementChild.cloneNode(true);
+      list.appendChild(row);
+      const input = row.querySelector('[data-column-label-input]');
+      if (input) input.focus();
+    }
+
+    function appendWorkspacePeriodRow() {
+      const list = section.querySelector('[data-workspace-period-list]');
+      if (!list || !periodRowTemplate || !periodRowTemplate.content.firstElementChild) return;
+      const row = periodRowTemplate.content.firstElementChild.cloneNode(true);
+      list.appendChild(row);
+      const input = row.querySelector('[data-worksheet-period-input]');
+      if (input) input.focus();
+      updateDefaultWorksheetPeriod(row.closest('[data-workspace-modal]'));
+    }
+
+    section.addEventListener('click', event => {
+      const openButton = event.target.closest('[data-open-workspace-modal]');
+      if (openButton) {
+        event.preventDefault();
+        openWorkspaceModal(String(openButton.dataset.openWorkspaceModal || '').trim());
+        return;
+      }
+
+      const closeButton = event.target.closest('[data-close-workspace-modal]');
+      if (closeButton) {
+        event.preventDefault();
+        closeWorkspaceModal(closeButton.closest('[data-workspace-modal]'));
+        return;
+      }
+
+      const addColumnButton = event.target.closest('[data-add-workspace-column]');
+      if (addColumnButton) {
+        event.preventDefault();
+        appendWorkspaceColumnRow();
+        return;
+      }
+
+      const removeColumnButton = event.target.closest('[data-remove-workspace-column]');
+      if (removeColumnButton) {
+        event.preventDefault();
+        const row = removeColumnButton.closest('[data-workspace-column-row]');
+        if (row) row.remove();
+        return;
+      }
+
+      const addPeriodButton = event.target.closest('[data-add-workspace-period]');
+      if (addPeriodButton) {
+        event.preventDefault();
+        appendWorkspacePeriodRow();
+        return;
+      }
+
+      const removePeriodButton = event.target.closest('[data-remove-workspace-period]');
+      if (removePeriodButton) {
+        event.preventDefault();
+        const row = removePeriodButton.closest('[data-workspace-period-row]');
+        const modal = removePeriodButton.closest('[data-workspace-modal]');
+        if (row) row.remove();
+        updateDefaultWorksheetPeriod(modal);
+      }
+    });
+
+    section.addEventListener('input', event => {
+      if (!(event.target instanceof HTMLInputElement)) return;
+      if (!event.target.matches('[data-worksheet-period-input]')) return;
+      updateDefaultWorksheetPeriod(event.target.closest('[data-workspace-modal]'));
+    });
+
+    section.addEventListener('change', event => {
+      if (!(event.target instanceof HTMLInputElement)) return;
+      if (!event.target.matches('[data-worksheet-period-input]')) return;
+      updateDefaultWorksheetPeriod(event.target.closest('[data-workspace-modal]'));
+    });
+
+    section.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      const openModal = modals.find(modal => !modal.hidden);
+      if (openModal) {
+        event.preventDefault();
+        closeWorkspaceModal(openModal);
+      }
+    });
+
+    modals.forEach(modal => {
+      const form = modal.querySelector('form');
+      if (!form || form.dataset.workspaceModalBound === 'true') return;
+      form.dataset.workspaceModalBound = 'true';
+      form.addEventListener('submit', () => {
+        updateDefaultWorksheetPeriod(modal);
+      });
+    });
+  })();
+
+  /* ── Document image lightbox ── */
+  (function initImageLightbox() {
+    const lightbox   = document.getElementById('bkImageLightbox');
+    if (!lightbox) return;
+    const lbImg      = lightbox.querySelector('.bk-lightbox__img');
+    const lbLabel    = lightbox.querySelector('.bk-lightbox__label');
+    const lbClose    = lightbox.querySelector('.bk-lightbox__close');
+    const lbBackdrop = lightbox.querySelector('.bk-lightbox__backdrop');
+
+    function openLightbox(src, label) {
+      lbImg.src = src;
+      lbImg.alt = label;
+      lbLabel.textContent = label;
+      lightbox.hidden = false;
+      document.body.classList.add('modal-open');
+    }
+
+    function closeLightbox() {
+      lightbox.hidden = true;
+      document.body.classList.remove('modal-open');
+      lbImg.src = '';
+    }
+
+    section.addEventListener('click', function(e) {
+      const btn = e.target.closest('.bk-doc-card__image-expand');
+      if (!btn) return;
+      openLightbox(btn.dataset.expandImg, btn.dataset.expandLabel);
+    });
+
+    lbClose.addEventListener('click', closeLightbox);
+    lbBackdrop.addEventListener('click', closeLightbox);
+    lightbox.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeLightbox();
+    });
+  })();
+
+  (function initDigitizedTableScrollbars() {
+    section.querySelectorAll('.bookkeeping-table-scroll--digitized').forEach(wrapper => {
+      if (wrapper.dataset.scrollBound === 'true') return;
+      wrapper.dataset.scrollBound = 'true';
+      const controlScope = wrapper.closest('[data-bookkeeping-pagination]') || wrapper.closest('.bk-doc-card') || wrapper.closest('.bookkeeping-table-block');
+      if (!controlScope) return;
+      const leftBtn = controlScope.querySelector('[data-scroll-table="left"]');
+      const rightBtn = controlScope.querySelector('[data-scroll-table="right"]');
+      if (leftBtn) {
+        leftBtn.addEventListener('click', () => {
+          wrapper.scrollBy({ left: -Math.max(200, wrapper.clientWidth * 0.75), behavior: 'smooth' });
+        });
+      }
+      if (rightBtn) {
+        rightBtn.addEventListener('click', () => {
+          wrapper.scrollBy({ left: Math.max(200, wrapper.clientWidth * 0.75), behavior: 'smooth' });
+        });
+      }
+    });
+  })();
+
+  (function initWorkbookPagination() {
+    const defaultPageSize = 30;
+
+    function readStoredPage(storageKey) {
+      if (!storageKey) return 1;
+      try {
+        const rawValue = window.sessionStorage.getItem(storageKey);
+        const parsed = Number.parseInt(rawValue || '1', 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+      } catch {
+        return 1;
+      }
+    }
+
+    function writeStoredPage(storageKey, pageNumber) {
+      if (!storageKey) return;
+      try {
+        window.sessionStorage.setItem(storageKey, String(pageNumber));
+      } catch {
+        /* Ignore session storage failures. */
+      }
+    }
+
+    function readStoredValue(storageKey, fallbackValue) {
+      if (!storageKey) return fallbackValue || '';
+      try {
+        const rawValue = window.sessionStorage.getItem(storageKey);
+        return rawValue || fallbackValue || '';
+      } catch {
+        return fallbackValue || '';
+      }
+    }
+
+    function writeStoredValue(storageKey, value) {
+      if (!storageKey) return;
+      try {
+        window.sessionStorage.setItem(storageKey, String(value || ''));
+      } catch {
+        /* Ignore session storage failures. */
+      }
+    }
+
+    section.querySelectorAll('[data-bookkeeping-pagination]').forEach(container => {
+      if (container.dataset.paginationBound === 'true') return;
+      container.dataset.paginationBound = 'true';
+
+      const tbody = container.querySelector('tbody');
+      const controls = container.querySelector('[data-pagination-controls]');
+      const summary = container.querySelector('[data-pagination-summary]');
+      const status = container.querySelector('[data-pagination-status]');
+      const prevButton = container.querySelector('[data-pagination-prev]');
+      const nextButton = container.querySelector('[data-pagination-next]');
+      if (!tbody || !controls || !summary || !status || !prevButton || !nextButton) return;
+
+      const pageSize = Math.max(1, Number.parseInt(container.dataset.pageSize || String(defaultPageSize), 10) || defaultPageSize);
+      const storageKey = container.dataset.pageStorageKey || '';
+      let currentPage = readStoredPage(storageKey);
+      const periodSelect = container.querySelector('[data-workspace-period-select]');
+      const periodSummary = container.querySelector('[data-workspace-period-summary]');
+      const defaultPeriodKey = periodSelect ? String(periodSelect.dataset.defaultPeriodKey || periodSelect.value || '') : '';
+      const periodStorageKey = periodSelect ? String(periodSelect.dataset.periodStorageKey || '') : '';
+      let activePeriodKey = periodSelect ? readStoredValue(periodStorageKey, defaultPeriodKey) : '';
+
+      function rowHasValues(row) {
+        return Array.from(row.querySelectorAll('input[data-column]')).some(input => String(input.value || '').trim());
+      }
+
+      function rowPeriodControl(row) {
+        const rowContainer = row.closest('[data-bookkeeping-pagination]');
+        return rowContainer ? rowContainer.querySelector('[data-workspace-period-select]') : periodSelect;
+      }
+
+      function syncRowPeriod(row) {
+        const periodInput = row.querySelector('input[data-role="workspace-period"]');
+        const documentTypeInput = row.querySelector('input[data-role="workspace-document-type"]');
+        const sourceInput = row.querySelector('input[data-role="entry-source"]');
+        const rowIdInput = row.querySelector('input[data-role="row-id"]');
+        const isImported = sourceInput && String(sourceInput.value || '').trim() === 'document_import';
+        const currentPeriod = String(periodInput ? periodInput.value : (row.dataset.workspacePeriod || '')).trim();
+        const localPeriodSelect = rowPeriodControl(row);
+        const localActivePeriodKey = localPeriodSelect
+          ? String(localPeriodSelect.value || localPeriodSelect.dataset.defaultPeriodKey || activePeriodKey || defaultPeriodKey || '').trim()
+          : (activePeriodKey || defaultPeriodKey);
+        let nextPeriod = currentPeriod || localActivePeriodKey;
+
+        if (documentTypeInput) {
+          const currentTypeKey = String(documentTypeInput.value || row.dataset.workspaceType || '').trim();
+          if (currentTypeKey) {
+            documentTypeInput.value = currentTypeKey;
+            row.dataset.workspaceType = currentTypeKey;
+          }
+        }
+
+        if (periodInput) {
+          const rowId = rowIdInput ? String(rowIdInput.value || '').trim() : '';
+          if (!isImported && (!rowId && !rowHasValues(row))) {
+            nextPeriod = localActivePeriodKey || nextPeriod;
+            periodInput.value = nextPeriod;
+          } else if (!String(periodInput.value || '').trim()) {
+            periodInput.value = nextPeriod;
+          }
+        }
+
+        row.dataset.workspacePeriod = nextPeriod;
+        return nextPeriod;
+      }
+
+      function updatePeriodSummary(rowCount) {
+        if (!periodSummary || !periodSelect) return;
+        const selectedOption = periodSelect.selectedOptions && periodSelect.selectedOptions.length ? periodSelect.selectedOptions[0] : null;
+        const label = selectedOption
+          ? String(selectedOption.dataset.periodLabel || selectedOption.textContent || activePeriodKey || 'Current period')
+          : (activePeriodKey || 'Current period');
+        periodSummary.textContent = label + ' · ' + String(rowCount) + ' row' + (rowCount === 1 ? '' : 's');
+      }
+
+      if (periodSelect) {
+        const periodValues = Array.from(periodSelect.options).map(option => String(option.value || ''));
+        if (!periodValues.includes(activePeriodKey)) {
+          activePeriodKey = periodValues.includes(defaultPeriodKey) ? defaultPeriodKey : (periodValues[0] || '');
+        }
+        if (activePeriodKey) {
+          periodSelect.value = activePeriodKey;
+        }
+      }
+
+      function renderPage(nextPage) {
+        const allRows = Array.from(tbody.querySelectorAll('tr[data-pagination-row="true"]'));
+        const placeholderRows = allRows.filter(row => row.dataset.paginationPlaceholder === 'true');
+        const dataRows = allRows.filter(row => row.dataset.paginationPlaceholder !== 'true');
+        const filteredRows = dataRows.filter(row => {
+          if (!periodSelect || !activePeriodKey) return true;
+          return syncRowPeriod(row) === activePeriodKey;
+        });
+        const matchingPlaceholderRows = placeholderRows.filter(row => {
+          if (!periodSelect || !activePeriodKey) return true;
+          return String(row.dataset.workspacePeriod || '').trim() === activePeriodKey;
+        });
+        filteredRows.forEach((row, index) => {
+          const indexLabel = row.querySelector('.bookkeeping-database-row__index');
+          if (indexLabel) {
+            indexLabel.textContent = String(index + 1);
+          }
+        });
+        const rowCount = filteredRows.length;
+        const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
+        currentPage = Math.min(Math.max(1, nextPage), pageCount);
+
+        const startIndex = (currentPage - 1) * pageSize;
+        const endIndex = startIndex + pageSize;
+        const visibleRows = new Set(
+          rowCount
+            ? filteredRows.slice(startIndex, endIndex)
+            : matchingPlaceholderRows.slice(0, pageSize)
+        );
+        allRows.forEach(row => {
+          const isVisible = visibleRows.has(row);
+          row.hidden = !isVisible;
+          row.setAttribute('aria-hidden', String(!isVisible));
+        });
+
+        controls.hidden = rowCount <= pageSize;
+        summary.textContent = rowCount
+          ? 'Showing ' + String(startIndex + 1) + '-' + String(Math.min(endIndex, rowCount)) + ' of ' + String(rowCount) + ' rows'
+          : (periodSelect && activePeriodKey ? 'No rows in this month yet' : 'No rows');
+        status.textContent = rowCount
+          ? 'Page ' + String(currentPage) + ' of ' + String(pageCount)
+          : 'Template Preview';
+        prevButton.disabled = rowCount <= pageSize || currentPage <= 1;
+        nextButton.disabled = rowCount <= pageSize || currentPage >= pageCount;
+        writeStoredPage(storageKey, currentPage);
+        updatePeriodSummary(rowCount);
+      }
+
+      prevButton.addEventListener('click', () => {
+        renderPage(currentPage - 1);
+      });
+      nextButton.addEventListener('click', () => {
+        renderPage(currentPage + 1);
+      });
+
+      if (periodSelect) {
+        periodSelect.addEventListener('change', () => {
+          activePeriodKey = String(periodSelect.value || defaultPeriodKey || '');
+          writeStoredValue(periodStorageKey, activePeriodKey);
+          renderPage(1);
+        });
+      }
+
+      renderPage(currentPage);
+    });
+  })();
+
+  applyPendingWorkspaceFocus();
+
+  (function initLiveWorkbookAutosave() {
+    const workbookForm = section.querySelector('[data-bookkeeping-live-form]');
+    if (!workbookForm || workbookForm.dataset.autosaveBound === 'true') return;
+    workbookForm.dataset.autosaveBound = 'true';
+
+    const autosaveFlag = workbookForm.querySelector('[data-bookkeeping-autosave-flag]');
+    const saveState = section.querySelector('[data-live-save-state]');
+    const saveNote = section.querySelector('[data-live-save-note]');
+    const rowCountMetric = section.querySelector('[data-live-row-count]');
+    const saveButton = section.querySelector('[form="' + workbookForm.id + '"]');
+    const saveTimeoutMs = bookkeepingBrowserTimeoutMs;
+
+    let saveTimer = 0;
+    let saveInFlight = false;
+    let pendingSave = false;
+    let lastSavedSnapshot = captureSnapshot();
+
+    function captureSnapshot() {
+      return new URLSearchParams(Array.from(new FormData(workbookForm).entries()).map(([key, value]) => [key, String(value)])).toString();
+    }
+
+    function workbookRows() {
+      return Array.from(workbookForm.querySelectorAll('tr[data-row-index]'));
+    }
+
+    function rowHasValues(row) {
+      return Array.from(row.querySelectorAll('input[data-column]')).some(input => String(input.value || '').trim());
+    }
+
+    function rowPeriodControl(row) {
+      const rowContainer = row.closest('[data-bookkeeping-pagination]');
+      return rowContainer ? rowContainer.querySelector('[data-workspace-period-select]') : null;
+    }
+
+    function activePeriodKeyForRow(row) {
+      const rowSelect = rowPeriodControl(row);
+      return rowSelect
+        ? String(rowSelect.value || rowSelect.dataset.defaultPeriodKey || '').trim()
+        : '';
+    }
+
+    function activeDocumentTypeKeyForRow(row) {
+      const documentTypeInput = row.querySelector('input[data-role="workspace-document-type"]');
+      return documentTypeInput
+        ? String(documentTypeInput.value || row.dataset.workspaceType || '').trim()
+        : String(row.dataset.workspaceType || '').trim();
+    }
+
+    function makeRowId() {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID().replace(/-/g, '');
+      }
+      return 'row-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    }
+
+    function formatUtcStamp(value) {
+      const date = value ? new Date(value) : null;
+      if (!date || Number.isNaN(date.getTime())) {
+        return 'Saved row';
+      }
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const hours = String(date.getUTCHours()).padStart(2, '0');
+      const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+      return year + '-' + month + '-' + day + ' ' + hours + ':' + minutes + ' UTC';
+    }
+
+    function updateSaveState(tone, label, note) {
+      if (saveState) {
+        saveState.className = 'bk-live-savebar__state';
+        saveState.classList.add('is-' + tone);
+        saveState.textContent = label;
+      }
+      if (saveNote) {
+        saveNote.textContent = note;
+      }
+    }
+
+    function prepareRowsForSave() {
+      workbookRows().forEach(row => {
+        if (!rowHasValues(row)) return;
+        const rowIdInput = row.querySelector('input[data-role="row-id"]');
+        const createdAtInput = row.querySelector('input[data-role="created-at"]');
+        const sourceInput = row.querySelector('input[data-role="entry-source"]');
+        const documentTypeInput = row.querySelector('input[data-role="workspace-document-type"]');
+        const periodInput = row.querySelector('input[data-role="workspace-period"]');
+        if (rowIdInput && !String(rowIdInput.value || '').trim()) {
+          rowIdInput.value = makeRowId();
+        }
+        if (createdAtInput && !String(createdAtInput.value || '').trim()) {
+          createdAtInput.value = new Date().toISOString();
+        }
+        if (sourceInput && !String(sourceInput.value || '').trim()) {
+          sourceInput.value = 'manual';
+        }
+        if (documentTypeInput && !String(documentTypeInput.value || '').trim()) {
+          documentTypeInput.value = activeDocumentTypeKeyForRow(row);
+        }
+        if (periodInput && !String(periodInput.value || '').trim()) {
+          periodInput.value = activePeriodKeyForRow(row) || periodInput.value;
+        }
+        row.dataset.workspaceType = documentTypeInput ? String(documentTypeInput.value || '').trim() : row.dataset.workspaceType;
+        row.dataset.workspacePeriod = periodInput ? String(periodInput.value || '').trim() : row.dataset.workspacePeriod;
+      });
+    }
+
+    function refreshWorkbookMetadata(savedAt, rowCount) {
+      workbookRows().forEach(row => {
+        const hasValues = rowHasValues(row);
+        const rowIdInput = row.querySelector('input[data-role="row-id"]');
+        const createdAtInput = row.querySelector('input[data-role="created-at"]');
+        const updatedAtInput = row.querySelector('input[data-role="updated-at"]');
+        const sourceInput = row.querySelector('input[data-role="entry-source"]');
+        const sourceDocumentInput = row.querySelector('input[data-role="source-document-id"]');
+        const sourceRowInput = row.querySelector('input[data-role="source-row-number"]');
+        const documentTypeInput = row.querySelector('input[data-role="workspace-document-type"]');
+        const periodInput = row.querySelector('input[data-role="workspace-period"]');
+        const tag = row.querySelector('.bookkeeping-database-row__tag');
+        const stamp = row.querySelector('.bookkeeping-database-row__stamp');
+        const isImported = sourceInput && String(sourceInput.value || '').trim() === 'document_import';
+        const importedStamp = sourceRowInput && String(sourceRowInput.value || '').trim()
+          ? 'Document row ' + String(sourceRowInput.value || '').trim()
+          : 'Imported row';
+
+        if (hasValues) {
+          const rowMode = isImported ? 'imported' : 'manual';
+          if (updatedAtInput) updatedAtInput.value = savedAt;
+          if (createdAtInput && !String(createdAtInput.value || '').trim()) {
+            createdAtInput.value = savedAt;
+          }
+          if (documentTypeInput && !String(documentTypeInput.value || '').trim()) {
+            documentTypeInput.value = activeDocumentTypeKeyForRow(row);
+          }
+          if (periodInput && !String(periodInput.value || '').trim()) {
+            periodInput.value = activePeriodKeyForRow(row) || periodInput.value;
+          }
+          row.dataset.workspaceType = documentTypeInput ? String(documentTypeInput.value || '').trim() : row.dataset.workspaceType;
+          row.dataset.workspacePeriod = periodInput ? String(periodInput.value || '').trim() : row.dataset.workspacePeriod;
+          row.classList.remove('bookkeeping-database-row--new', 'bookkeeping-database-row--manual', 'bookkeeping-database-row--imported');
+          row.classList.add('bookkeeping-database-row--' + rowMode);
+          if (tag) {
+            tag.className = 'bookkeeping-database-row__tag bookkeeping-database-row__tag--' + rowMode;
+            tag.textContent = rowMode === 'imported' ? 'Imported' : 'Saved';
+          }
+          if (stamp) {
+            stamp.textContent = rowMode === 'imported' ? importedStamp : formatUtcStamp(createdAtInput ? createdAtInput.value : savedAt);
+          }
+          return;
+        }
+
+        if (rowIdInput) rowIdInput.value = '';
+        if (createdAtInput) createdAtInput.value = '';
+        if (updatedAtInput) updatedAtInput.value = '';
+        if (sourceInput) sourceInput.value = 'manual';
+        if (sourceDocumentInput) sourceDocumentInput.value = '';
+        if (sourceRowInput) sourceRowInput.value = '';
+        if (documentTypeInput && !String(documentTypeInput.value || '').trim()) {
+          documentTypeInput.value = activeDocumentTypeKeyForRow(row);
+        }
+        if (periodInput) periodInput.value = activePeriodKeyForRow(row) || periodInput.value;
+        row.dataset.workspaceType = documentTypeInput ? String(documentTypeInput.value || '').trim() : row.dataset.workspaceType;
+        row.dataset.workspacePeriod = periodInput ? String(periodInput.value || '').trim() : row.dataset.workspacePeriod;
+        row.classList.remove('bookkeeping-database-row--manual', 'bookkeeping-database-row--imported');
+        row.classList.add('bookkeeping-database-row--new');
+        if (tag) {
+          tag.className = 'bookkeeping-database-row__tag bookkeeping-database-row__tag--new';
+          tag.textContent = 'New';
+        }
+        if (stamp) {
+          stamp.textContent = 'Ready for entry';
+        }
+      });
+
+      if (rowCountMetric) {
+        const nextRowCount = Number.isFinite(Number(rowCount)) ? Number(rowCount) : workbookRows().filter(rowHasValues).length;
+        rowCountMetric.textContent = String(nextRowCount);
+      }
+    }
+
+    function queueSave(delayMs) {
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        void submitSave(false);
+      }, delayMs);
+    }
+
+    async function submitSave(manualSave) {
+      window.clearTimeout(saveTimer);
+      if (!document.body.contains(workbookForm)) return;
+      if (saveInFlight) {
+        pendingSave = true;
+        return;
+      }
+
+      const snapshotBeforeSave = captureSnapshot();
+      if (!manualSave && snapshotBeforeSave === lastSavedSnapshot) {
+        updateSaveState('ready', 'Autosave On', 'Changes sync after you pause typing.');
+        return;
+      }
+
+      prepareRowsForSave();
+      const preparedSnapshot = captureSnapshot();
+      if (!manualSave && preparedSnapshot === lastSavedSnapshot) {
+        updateSaveState('ready', 'Autosave On', 'Changes sync after you pause typing.');
+        return;
+      }
+
+      saveInFlight = true;
+      pendingSave = false;
+      updateSaveState('saving', 'Saving…', manualSave ? 'Sending workbook changes now.' : 'Syncing workbook changes to the cloud.');
+      if (saveButton) saveButton.disabled = true;
+      if (autosaveFlag) autosaveFlag.value = '1';
+
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), saveTimeoutMs);
+      try {
+        const response = await fetch(workbookForm.action, {
+          method: workbookForm.method || 'POST',
+          body: new URLSearchParams(Array.from(new FormData(workbookForm).entries()).map(([key, value]) => [key, String(value)])),
+          signal: controller.signal,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
+        if (!contentType.includes('application/json')) {
+          throw new Error('The workbook save did not return valid JSON. Refresh the page and try again.');
+        }
+
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.failure_messages?.join(' ') || payload.success_message || 'Could not save the workbook.');
+        }
+
+        const savedAt = payload.saved_at || new Date().toISOString();
+        refreshWorkbookMetadata(savedAt, payload.row_count);
+        lastSavedSnapshot = captureSnapshot();
+        updateSaveState('success', 'Saved to Cloud', 'Last synced ' + formatUtcStamp(savedAt) + '.');
+        scheduleProfileRefresh(250);
+      } catch (error) {
+        updateSaveState(
+          'error',
+          'Save Failed',
+          error.name === 'AbortError'
+            ? 'Workbook autosave took too long. Click Save Now to retry.'
+            : (error.message || 'Could not save workbook changes.')
+        );
+      } finally {
+        window.clearTimeout(timeoutId);
+        saveInFlight = false;
+        if (saveButton) saveButton.disabled = false;
+        if (pendingSave) {
+          pendingSave = false;
+          queueSave(350);
+        }
+      }
+    }
+
+    workbookForm.addEventListener('submit', event => {
+      event.preventDefault();
+      void submitSave(true);
+    });
+
+    workbookForm.addEventListener('input', event => {
+      if (!(event.target instanceof HTMLInputElement) || !event.target.matches('input[data-column]')) return;
+      const row = event.target.closest('tr[data-row-index]');
+      const periodInput = row ? row.querySelector('input[data-role="workspace-period"]') : null;
+      if (periodInput && !String(periodInput.value || '').trim()) {
+        periodInput.value = activePeriodKey() || periodInput.value;
+        row.dataset.workspacePeriod = String(periodInput.value || '').trim();
+      }
+      updateSaveState('dirty', 'Changes Pending', 'Autosave will run after you pause typing.');
+      queueSave(1200);
+    });
+
+    workbookForm.addEventListener('change', event => {
+      if (!(event.target instanceof HTMLInputElement) || !event.target.matches('input[data-column]')) return;
+      const row = event.target.closest('tr[data-row-index]');
+      const periodInput = row ? row.querySelector('input[data-role="workspace-period"]') : null;
+      if (periodInput && !String(periodInput.value || '').trim()) {
+        periodInput.value = activePeriodKey() || periodInput.value;
+        row.dataset.workspacePeriod = String(periodInput.value || '').trim();
+      }
+      updateSaveState('dirty', 'Changes Pending', 'Autosave will run after you pause typing.');
+      queueSave(600);
+    });
+  })();
+
+  /* ── Multi-select mode ── */
+  (function() {
+    const toggle    = section.querySelector('#bkSelectToggle');
+    const cancelBtn = section.querySelector('#bkSelectCancel');
+    const selectAll = section.querySelector('#bkSelectAll');
+    const importBtn = section.querySelector('#bkBulkImportLive');
+    const monthInput = section.querySelector('#bkBulkWorkspaceMonth');
+    const deleteBtn = section.querySelector('#bkBulkDelete');
+    const bulkBar   = section.querySelector('#bkBulkBar');
+    const countEl   = section.querySelector('#bkBulkCount');
+    const folders   = section.querySelector('.bk-folders');
+    if (!toggle || !cancelBtn || !selectAll || !deleteBtn || !bulkBar || !countEl || !folders) return;
+
+    function getCheckboxes() { return Array.from(section.querySelectorAll('.bk-doc-checkbox')); }
+    function getChecked()    { return getCheckboxes().filter(c => c.checked); }
+
+    function updateCount() {
+      const n = getChecked().length;
+      countEl.textContent = n + ' selected';
+      deleteBtn.disabled = n === 0;
+      if (importBtn) {
+        const hasMonth = monthInput ? Boolean(String(monthInput.value || '').trim()) : false;
+        importBtn.disabled = n === 0 || !hasMonth;
+      }
+    }
+
+    function enterSelectMode() {
+      folders.classList.add('bk-select-mode');
+      toggle.classList.add('is-active');
+      bulkBar.hidden = false;
+      getCheckboxes().forEach(c => { c.hidden = false; });
+      updateCount();
+    }
+
+    function exitSelectMode() {
+      folders.classList.remove('bk-select-mode');
+      toggle.classList.remove('is-active');
+      toggle.setAttribute('aria-pressed', 'false');
+      bulkBar.hidden = true;
+      getCheckboxes().forEach(c => { c.checked = false; c.hidden = true; });
+      section.querySelectorAll('.bk-doc-card').forEach(c => c.classList.remove('is-selected'));
+      updateCount();
+    }
+
+    toggle.addEventListener('click', function() {
+      const entering = !folders.classList.contains('bk-select-mode');
+      if (entering) {
+        enterSelectMode();
+        toggle.setAttribute('aria-pressed', 'true');
+        return;
+      }
+      exitSelectMode();
+    });
+
+    cancelBtn.addEventListener('click', exitSelectMode);
+
+    selectAll.addEventListener('click', function() {
+      const boxes = getCheckboxes();
+      const allChecked = boxes.every(c => c.checked);
+      boxes.forEach(c => {
+        c.checked = !allChecked;
+        c.closest('.bk-doc-card').classList.toggle('is-selected', !allChecked);
+      });
+      updateCount();
+    });
+
+    if (monthInput) {
+      monthInput.addEventListener('input', updateCount);
+      monthInput.addEventListener('change', updateCount);
+    }
+
+    section.addEventListener('change', function(e) {
+      if (!e.target.classList.contains('bk-doc-checkbox')) return;
+      e.target.closest('.bk-doc-card').classList.toggle('is-selected', e.target.checked);
+      updateCount();
+    });
+
+    // Prevent card expand when clicking the select box
+    section.querySelectorAll('.bk-doc-card__select').forEach(lbl => {
+      lbl.addEventListener('click', e => e.stopPropagation());
+    });
+
+    if (importBtn) {
+      importBtn.addEventListener('click', async function() {
+        const checked = getChecked();
+        const workspacePeriodKey = monthInput ? String(monthInput.value || '').trim() : '';
+        if (checked.length === 0) return;
+        if (!workspacePeriodKey) {
+          if (monthInput) monthInput.focus();
+          return;
+        }
+
+        const names = checked.map(c => c.closest('.bk-doc-card').querySelector('h4')?.textContent || c.value);
+        const formattedMonth = (() => {
+          const [year, month] = workspacePeriodKey.split('-');
+          const monthIndex = Number.parseInt(month || '', 10) - 1;
+          if (!year || !Number.isInteger(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+            return workspacePeriodKey;
+          }
+          return new Date(Date.UTC(Number.parseInt(year, 10), monthIndex, 1)).toLocaleString(undefined, {
+            month: 'long',
+            year: 'numeric',
+            timeZone: 'UTC'
+          });
+        })();
+
+        if (!window.confirm(`Add ${checked.length} document${checked.length !== 1 ? 's' : ''} to the live workbook for ${formattedMonth}?\n\n${names.join('\n')}`)) {
+          return;
+        }
+
+        importBtn.disabled = true;
+        importBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding…';
+
+        const form = new FormData();
+        form.append('workspace_period_key', workspacePeriodKey);
+        checked.forEach(c => form.append('document_ids[]', c.value));
+
+        const importUrl = '{{ url_for("main.bulk_import_bookkeeping_documents_to_live") }}';
+        const status  = section.querySelector('.bookkeeping-section-status');
+        const overlay = section.querySelector('.bookkeeping-loading-overlay');
+        if (overlay) overlay.hidden = false;
+
+        try {
+          const resp = await fetch(importUrl, {
+            method: 'POST',
+            body: form,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+          });
+          const payload = await resp.json();
+          if (payload.html) {
+            root.innerHTML = payload.html;
+            initBookkeepingAsync();
+            if (window._bkDropZoneInitHook) window._bkDropZoneInitHook(root);
+          }
+          scheduleProfileRefresh(0);
+          const nextStatus = root.querySelector('.bookkeeping-section-status');
+          if (nextStatus) {
+            const msgs = [];
+            if (payload.success_message) msgs.push(payload.success_message);
+            if (payload.failure_messages?.length) msgs.push(payload.failure_messages.join(' '));
+            if (msgs.length) {
+              nextStatus.hidden = false;
+              nextStatus.textContent = msgs.join(' ');
+              nextStatus.className = 'bookkeeping-section-status ' + (payload.failure_messages?.length ? 'is-error' : 'is-success');
+            }
+          }
+        } catch (err) {
+          if (status) {
+            status.hidden = false;
+            status.textContent = err.message || 'Bulk import failed.';
+            status.className = 'bookkeeping-section-status is-error';
+          }
+          if (overlay) overlay.hidden = true;
+          importBtn.disabled = false;
+          importBtn.innerHTML = '<i class="fas fa-table-cells-large"></i> Add To Live Bookkeeping';
+        }
+      });
+    }
+
+    deleteBtn.addEventListener('click', async function() {
+      const checked = getChecked();
+      if (checked.length === 0) return;
+      const names = checked.map(c => c.closest('.bk-doc-card').querySelector('h4')?.textContent || c.value);
+      if (!window.confirm(`Delete ${checked.length} document${checked.length !== 1 ? 's' : ''}?\n\n${names.join('\n')}`)) return;
+
+      deleteBtn.disabled = true;
+      deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting…';
+
+      const form = new FormData();
+      checked.forEach(c => form.append('document_ids[]', c.value));
+
+      const bulkUrl = '{{ url_for("main.bulk_delete_bookkeeping_documents") }}';
+      const status  = section.querySelector('.bookkeeping-section-status');
+      const overlay = section.querySelector('.bookkeeping-loading-overlay');
+      if (overlay) overlay.hidden = false;
+
+      try {
+        const resp = await fetch(bulkUrl, {
+          method: 'POST',
+          body: form,
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const payload = await resp.json();
+        if (payload.workspace_focus) {
+          writeWorkspaceFocus(payload.workspace_focus);
+        }
+        if (payload.html) {
+          if (!document.querySelector('.bk-lightbox:not([hidden])')) {
+            document.body.classList.remove('modal-open');
+          }
+          root.innerHTML = payload.html;
+          initBookkeepingAsync();
+          if (window._bkDropZoneInitHook) window._bkDropZoneInitHook(root);
+        }
+        scheduleProfileRefresh(0);
+        const nextStatus = root.querySelector('.bookkeeping-section-status');
+        if (nextStatus) {
+          const msgs = [];
+          if (payload.success_message) msgs.push(payload.success_message);
+          if (payload.failure_messages?.length) msgs.push(payload.failure_messages.join(' '));
+          if (msgs.length) {
+            nextStatus.hidden = false;
+            nextStatus.textContent = msgs.join(' ');
+            nextStatus.className = 'bookkeeping-section-status ' + (payload.failure_messages?.length ? 'is-error' : 'is-success');
+          }
+        }
+      } catch (err) {
+        if (status) {
+          status.hidden = false;
+          status.textContent = err.message || 'Bulk delete failed.';
+          status.className = 'bookkeeping-section-status is-error';
+        }
+        if (overlay) overlay.hidden = true;
+        deleteBtn.disabled = false;
+        deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Delete Selected';
+      }
+    });
+  })();
+
+  section.querySelectorAll('[data-copy-text]').forEach(button => {
+    if (button.dataset.copyBound === 'true') return;
+    button.dataset.copyBound = 'true';
+    button.addEventListener('click', async () => {
+      const text = button.dataset.copyText || '';
+      const originalLabel = button.innerHTML;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          button.innerHTML = '<i class="fas fa-check"></i> Copied';
+        } else {
+          window.prompt('Copy this link:', text);
+        }
+      } catch {
+        window.prompt('Copy this link:', text);
+      }
+      window.setTimeout(() => {
+        button.innerHTML = originalLabel;
+      }, 1600);
+    });
+  });
+
+  section.querySelectorAll('[data-bookkeeping-async="true"]').forEach(form => {
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+
+      const confirmMessage = form.dataset.confirm || '';
+      if (confirmMessage && !window.confirm(confirmMessage)) {
+        return;
+      }
+
+      const status = section.querySelector('.bookkeeping-section-status');
+      const overlay = section.querySelector('.bookkeeping-loading-overlay');
+      const submitButton = form.querySelector('button[type="submit"]');
+      const originalLabel = submitButton ? submitButton.innerHTML : '';
+
+      if (status) {
+        status.hidden = true;
+        status.textContent = '';
+        status.className = 'bookkeeping-section-status';
+      }
+      if (overlay) overlay.hidden = false;
+      if (section) section.classList.add('is-loading');
+      if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing…';
+      }
+
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), bookkeepingBrowserTimeoutMs);
+      const hasFileInputs = !!form.querySelector('input[type="file"]');
+      const formData = new FormData(form);
+      const requestBody = hasFileInputs
+        ? formData
+        : new URLSearchParams(Array.from(formData.entries()).map(([key, value]) => [key, String(value)]));
+
+      try {
+        const response = await fetch(form.action, {
+          method: form.method || 'POST',
+          body: requestBody,
+          signal: controller.signal,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
+        let payload;
+        if (!contentType.includes('application/json')) {
+          if (response.status === 413) {
+            throw new Error(
+              hasFileInputs
+                ? 'The selected document is too large for upload. Crop the image or upload a smaller file and try again.'
+                : 'The bookkeeping request was too large for the server to accept.'
+            );
+          }
+          throw new Error(
+            response.redirected
+              ? 'The bookkeeping upload was redirected before it finished. Refresh the page and try again.'
+              : 'The bookkeeping request returned an unexpected response. Refresh and try again.'
+          );
+        }
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          throw new Error('The bookkeeping request did not return valid JSON. Refresh and try again.');
+        }
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.failure_messages?.join(' ') || payload.success_message || 'Request failed.');
+        }
+
+        if (payload.html) {
+          root.innerHTML = payload.html;
+          initBookkeepingAsync();
+          if (window._bkDropZoneInitHook) window._bkDropZoneInitHook(root);
+        }
+        scheduleProfileRefresh(0);
+
+        const nextStatus = root.querySelector('.bookkeeping-section-status');
+        if (nextStatus) {
+          const messages = [];
+          if (payload.success_message) messages.push(payload.success_message);
+          if (payload.failure_messages?.length) messages.push(payload.failure_messages.join(' '));
+          if (messages.length) {
+            nextStatus.hidden = false;
+            nextStatus.textContent = messages.join(' ');
+            nextStatus.classList.add(payload.failure_messages?.length ? 'is-info' : 'is-success');
+          }
+        }
+      } catch (error) {
+        if (status) {
+          status.hidden = false;
+          status.textContent = error.name === 'AbortError'
+            ? 'Bookkeeping extraction took too long and was stopped. Try a smaller file or a clearer crop.'
+            : (error.message || 'Could not process bookkeeping request.');
+          status.classList.add('is-error');
+        }
+      } finally {
+        window.clearTimeout(timeoutId);
+        if (overlay) overlay.hidden = true;
+        if (section) section.classList.remove('is-loading');
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.innerHTML = originalLabel;
+        }
+      }
+    });
+  });
+}
+
+initBookkeepingAsync();
+const _bkRoot = document.getElementById('bookkeepingSectionRoot');
+if (_bkRoot) {
+  // init drop zone on page load (before DOMContentLoaded fires the inner hook)
+  setTimeout(function() {
+    if (window._bkDropZoneInitHook) window._bkDropZoneInitHook(_bkRoot);
+  }, 0);
+}
+
+/* ── Drag-and-drop onto the bookkeeping drop zone ── */
+(function() {
+  function initDropZone(root) {
+    const zone = root.querySelector('#bkDropZone');
+    const fileInput = root.querySelector('#bkFileInput');
+    if (!zone || !fileInput) return;
+
+    ['dragenter', 'dragover'].forEach(evt => {
+      zone.addEventListener(evt, function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        zone.classList.add('is-over');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(evt => {
+      zone.addEventListener(evt, function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        zone.classList.remove('is-over');
+      });
+    });
+
+    zone.addEventListener('drop', function(e) {
+      const files = e.dataTransfer && e.dataTransfer.files;
+      if (!files || files.length === 0) return;
+
+      // Assign dropped files to the file input via DataTransfer
+      const dt = new DataTransfer();
+      Array.from(files).forEach(f => dt.items.add(f));
+      fileInput.files = dt.files;
+
+      // Update the label text
+      const label = fileInput.closest('label');
+      if (label) {
+        const span = label.querySelector('span');
+        if (span) span.textContent = files.length === 1 ? files[0].name : files.length + ' files dropped';
+      }
+    });
+  }
+
+  // Init on first load
+  document.addEventListener('DOMContentLoaded', function() {
+    const root = document.getElementById('bookkeepingSectionRoot');
+    if (root) initDropZone(root);
+  });
+
+  // Re-init after async bookkeeping reload (the section HTML is replaced)
+  const _origInit = window._bkDropZoneInit;
+  window._bkDropZoneInitHook = initDropZone;
+})();
+
+/* ── File label feedback: show filename when a file is chosen ── */
+document.addEventListener('change', function(e) {
+  if (e.target.type !== 'file') return;
+  const label = e.target.closest('.bk-upload-bar__file-label, .bk-audit-panel__file-label');
+  if (!label) return;
+  const span = label.querySelector('span');
+  if (!span) return;
+  const files = e.target.files;
+  if (files && files.length > 0) {
+    span.textContent = files.length === 1 ? files[0].name : files.length + ' files selected';
+  }
+});
+
+if (embeddedLayoutEnabled) {
+  (function() {
+    if (window.parent === window) return;
+
+    let resizeQueued = false;
+
+    function postHeight() {
+      const height = Math.max(
+        document.body ? document.body.scrollHeight : 0,
+        document.documentElement ? document.documentElement.scrollHeight : 0,
+        680
+      );
+      window.parent.postMessage({ type: 'kumbu-embed-resize', height: height }, window.location.origin);
+    }
+
+    function queueHeightSync() {
+      if (resizeQueued) return;
+      resizeQueued = true;
+      window.requestAnimationFrame(function() {
+        resizeQueued = false;
+        postHeight();
+      });
+    }
+
+    window.addEventListener('load', queueHeightSync);
+    window.addEventListener('resize', queueHeightSync);
+    window.setTimeout(queueHeightSync, 120);
+    window.setTimeout(queueHeightSync, 600);
+
+    if (window.MutationObserver) {
+      const target = document.body || document.documentElement;
+      if (target) {
+        new MutationObserver(queueHeightSync).observe(target, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+        });
+      }
+    }
+  })();
 }
 </script>
 {% endblock %}

@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline Bookkeeping · {{ cbo.name }} · Kumbu Connect</title>
+  <meta name="theme-color" content="#1f6b4f">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  <style>
+    :root {
+      --offline-ink: #18313b;
+      --offline-muted: #5d6f72;
+      --offline-border: rgba(24, 49, 59, 0.12);
+      --offline-card: rgba(255, 255, 255, 0.94);
+      --offline-accent: #1f6b4f;
+      --offline-accent-soft: #dbefe4;
+      --offline-warn: #9a5a12;
+      --offline-warn-soft: #f4e0c4;
+      --offline-error: #8a2f2f;
+      --offline-error-soft: #f6dede;
+      --offline-bg: linear-gradient(180deg, #f7f0e3 0%, #f4f7f3 48%, #e8f1eb 100%);
+      --offline-shadow: 0 24px 60px rgba(24, 49, 59, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body.bookkeeping-offline-page {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--offline-ink);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      overflow-x: hidden;
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.8), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(31, 107, 79, 0.1), transparent 28%),
+        var(--offline-bg);
+    }
+
+    .bookkeeping-offline-shell {
+      width: min(1180px, calc(100vw - 2rem));
+      max-width: 100%;
+      min-width: 0;
+      margin: 0 auto;
+      padding: clamp(0.85rem, 2vw, 1.6rem) 0 2.75rem;
+      display: grid;
+      gap: 1rem;
+    }
+
+    .bookkeeping-offline-hero,
+    .bookkeeping-offline-card {
+      background: var(--offline-card);
+      border: 1px solid var(--offline-border);
+      border-radius: 28px;
+      box-shadow: var(--offline-shadow);
+      backdrop-filter: blur(10px);
+      min-width: 0;
+    }
+
+    .bookkeeping-offline-hero {
+      padding: clamp(1.2rem, 2.4vw, 1.6rem);
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      gap: 1.1rem;
+    }
+
+    .bookkeeping-offline-hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -8% -28% auto;
+      width: 300px;
+      height: 300px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(31, 107, 79, 0.14), transparent 65%);
+      pointer-events: none;
+    }
+
+    .bookkeeping-offline-hero__top,
+    .bookkeeping-offline-card__header,
+    .bookkeeping-offline-form__actions,
+    .bookkeeping-offline-toolbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .bookkeeping-offline-badges,
+    .bookkeeping-offline-meta,
+    .bookkeeping-offline-category-row {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .bookkeeping-offline-file-actions {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .bookkeeping-offline-hero__main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
+      gap: 1.1rem;
+      align-items: start;
+      position: relative;
+      z-index: 1;
+      min-width: 0;
+    }
+
+    .bookkeeping-offline-hero__content {
+      display: grid;
+      gap: 0.95rem;
+      align-content: start;
+      min-width: 0;
+    }
+
+    .bookkeeping-offline-hero__copy {
+      display: grid;
+      gap: 0.8rem;
+    }
+
+    .bookkeeping-offline-hero__summary {
+      display: grid;
+      align-content: start;
+      min-width: 0;
+    }
+
+    .bookkeeping-offline-action-panel {
+      display: grid;
+      gap: 0.9rem;
+      padding: 1rem 1.05rem;
+      border-radius: 22px;
+      border: 1px solid rgba(31, 107, 79, 0.14);
+      background: linear-gradient(180deg, rgba(233, 242, 236, 0.95), rgba(255, 255, 255, 0.98));
+      min-width: 0;
+    }
+
+    .bookkeeping-offline-action-panel__top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.9rem;
+      flex-wrap: wrap;
+    }
+
+    .bookkeeping-offline-action-panel h2 {
+      margin: 0;
+      font-size: 1.12rem;
+      letter-spacing: -0.02em;
+      color: var(--offline-ink);
+    }
+
+    .bookkeeping-offline-action-panel__text {
+      margin: 0;
+      color: var(--offline-muted);
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+
+    .bookkeeping-offline-action-panel__status {
+      padding: 0.85rem 0.95rem;
+      border-radius: 16px;
+      border: 1px solid rgba(24, 49, 59, 0.08);
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .bookkeeping-offline-hero__actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.75rem;
+      width: 100%;
+    }
+
+    .bookkeeping-offline-hero__actions .btn,
+    .bookkeeping-offline-file-actions .btn {
+      justify-content: center;
+    }
+
+    .bookkeeping-offline-file-actions .btn {
+      flex: 1 1 170px;
+    }
+
+    .bookkeeping-offline-hero h1,
+    .bookkeeping-offline-card h2 {
+      margin: 0;
+      letter-spacing: -0.03em;
+    }
+
+    .bookkeeping-offline-hero h1 {
+      font-size: clamp(2rem, 3.8vw, 3.4rem);
+      max-width: 12ch;
+      line-height: 0.98;
+      margin-top: 0.4rem;
+    }
+
+    .bookkeeping-offline-hero p,
+    .bookkeeping-offline-card p,
+    .bookkeeping-offline-note,
+    .bookkeeping-offline-queue-item__meta,
+    .bookkeeping-offline-empty {
+      color: var(--offline-muted);
+    }
+
+    .bookkeeping-offline-hero p {
+      max-width: 62ch;
+      font-size: 1rem;
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    .bookkeeping-offline-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.5rem 0.9rem;
+      border-radius: 999px;
+      border: 1px solid var(--offline-border);
+      background: rgba(255, 255, 255, 0.7);
+      font-size: 0.88rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .bookkeeping-offline-pill.is-online,
+    .bookkeeping-offline-pill.is-ready,
+    .bookkeeping-offline-pill.is-success {
+      background: var(--offline-accent-soft);
+      color: var(--offline-accent);
+      border-color: rgba(31, 107, 79, 0.22);
+    }
+
+    .bookkeeping-offline-pill.is-offline,
+    .bookkeeping-offline-pill.is-warning {
+      background: var(--offline-warn-soft);
+      color: var(--offline-warn);
+      border-color: rgba(154, 90, 18, 0.24);
+    }
+
+    .bookkeeping-offline-pill.is-error {
+      background: var(--offline-error-soft);
+      color: var(--offline-error);
+      border-color: rgba(138, 47, 47, 0.24);
+    }
+
+    .bookkeeping-offline-metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 0.85rem;
+      min-width: 0;
+    }
+
+    .bookkeeping-offline-metric {
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 251, 248, 0.84));
+      border: 1px solid var(--offline-border);
+      border-radius: 20px;
+      padding: 0.95rem 1rem;
+      min-height: 0;
+      display: grid;
+      gap: 0.8rem;
+      align-content: start;
+    }
+
+    .bookkeeping-offline-metric span {
+      color: var(--offline-muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .bookkeeping-offline-metric strong {
+      font-size: 1.35rem;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+
+    .bookkeeping-offline-main {
+      display: grid;
+      gap: 1rem;
+      min-width: 0;
+    }
+
+    .bookkeeping-offline-secondary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+      min-width: 0;
+    }
+
+    .bookkeeping-offline-card {
+      padding: clamp(1.05rem, 2vw, 1.35rem);
+      display: grid;
+      gap: 0.95rem;
+    }
+
+    .bookkeeping-offline-card--wide {
+      grid-column: auto;
+    }
+
+    .bookkeeping-offline-card__eyebrow {
+      display: inline-block;
+      margin-bottom: 0.35rem;
+      font-size: 0.76rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--offline-accent);
+    }
+
+    .bookkeeping-offline-fields {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.8rem;
+      margin-top: 0.25rem;
+    }
+
+    .bookkeeping-offline-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .bookkeeping-offline-field label {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--offline-muted);
+    }
+
+    .bookkeeping-offline-field input {
+      width: 100%;
+      padding: 0.82rem 0.9rem;
+      border: 1px solid rgba(24, 49, 59, 0.16);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.92);
+      font: inherit;
+      color: var(--offline-ink);
+    }
+
+    .bookkeeping-offline-field input:focus {
+      outline: 2px solid rgba(31, 107, 79, 0.18);
+      border-color: rgba(31, 107, 79, 0.44);
+    }
+
+    .bookkeeping-offline-workbook-meta {
+      margin-top: 0.15rem;
+    }
+
+    .bookkeeping-offline-workbook-shell {
+      display: grid;
+      gap: 0.85rem;
+      min-width: 0;
+    }
+
+    .bookkeeping-offline-workbook-scroll {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .bookkeeping-offline-workbook-table {
+      min-width: max-content;
+    }
+
+    .bookkeeping-offline-workbook-table__index,
+    .bookkeeping-offline-workbook-table__tag,
+    .bookkeeping-offline-workbook-table__stamp {
+      display: block;
+    }
+
+    .bookkeeping-offline-workbook-table__index {
+      font-size: 0.96rem;
+      font-weight: 800;
+      color: var(--offline-ink);
+    }
+
+    .bookkeeping-offline-workbook-table__tag {
+      margin-top: 0.35rem;
+      width: fit-content;
+      padding: 0.24rem 0.58rem;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .bookkeeping-offline-workbook-table__tag--imported {
+      background: rgba(31, 107, 79, 0.12);
+      color: var(--offline-accent);
+    }
+
+    .bookkeeping-offline-workbook-table__tag--manual {
+      background: rgba(24, 49, 59, 0.1);
+      color: var(--offline-ink);
+    }
+
+    .bookkeeping-offline-workbook-table__tag--new {
+      background: rgba(154, 90, 18, 0.16);
+      color: var(--offline-warn);
+    }
+
+    .bookkeeping-offline-workbook-table__stamp {
+      margin-top: 0.45rem;
+      color: var(--offline-muted);
+      font-size: 0.78rem;
+      line-height: 1.4;
+      white-space: normal;
+    }
+
+    .bookkeeping-offline-workbook-row--imported {
+      background: rgba(219, 239, 228, 0.36);
+    }
+
+    .bookkeeping-offline-workbook-row--manual {
+      background: rgba(255, 255, 255, 0.5);
+    }
+
+    .bookkeeping-offline-workbook-row--new {
+      background: rgba(244, 224, 196, 0.34);
+    }
+
+    .bookkeeping-offline-workbook-input {
+      width: 100%;
+      min-width: 110px;
+      border: 0;
+      background: transparent;
+      padding: 0.85rem 0.95rem;
+      font: inherit;
+      color: var(--offline-ink);
+    }
+
+    .bookkeeping-offline-workbook-input:focus {
+      outline: 2px solid rgba(31, 107, 79, 0.18);
+      outline-offset: -2px;
+      background: rgba(255, 255, 255, 0.94);
+    }
+
+    .bookkeeping-offline-upload-box {
+      margin-top: 0.15rem;
+      display: grid;
+      gap: 0.95rem;
+      padding: 1.1rem;
+      border-radius: 20px;
+      border: 1px dashed rgba(24, 49, 59, 0.2);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(236, 244, 239, 0.8));
+    }
+
+    .bookkeeping-offline-upload-preferences {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      gap: 0.85rem;
+      align-items: start;
+    }
+
+    .bookkeeping-offline-field {
+      display: grid;
+      gap: 0.45rem;
+    }
+
+    .bookkeeping-offline-field__label {
+      color: var(--offline-ink);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .bookkeeping-offline-field input {
+      min-height: 3rem;
+      padding: 0.75rem 0.85rem;
+      border: 1px solid rgba(24, 49, 59, 0.18);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.92);
+      color: var(--offline-ink);
+      font: inherit;
+    }
+
+    .bookkeeping-offline-note {
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+
+    .bookkeeping-offline-form__actions {
+      margin-top: 1rem;
+    }
+
+    .bookkeeping-offline-checkbox {
+      display: inline-flex;
+      gap: 0.6rem;
+      align-items: flex-start;
+      margin-top: 0;
+      font-size: 0.94rem;
+      color: var(--offline-ink);
+    }
+
+    .bookkeeping-offline-checkbox__copy {
+      display: grid;
+      gap: 0.3rem;
+    }
+
+    .bookkeeping-offline-checkbox__copy strong {
+      color: var(--offline-ink);
+      font-size: 0.95rem;
+    }
+
+    .bookkeeping-offline-checkbox__copy small {
+      color: rgba(24, 49, 59, 0.72);
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }
+
+    .bookkeeping-offline-period-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      color: var(--offline-ink);
+      font-size: 0.84rem;
+      font-weight: 700;
+    }
+
+    .bookkeeping-offline-period-control select {
+      min-width: 190px;
+      padding: 0.7rem 0.8rem;
+      border: 1px solid rgba(24, 49, 59, 0.16);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      color: var(--offline-ink);
+      font: inherit;
+    }
+
+    .bookkeeping-offline-status {
+      margin-top: 0.15rem;
+      padding: 0.95rem 1rem;
+      border-radius: 16px;
+      background: rgba(248, 244, 233, 0.95);
+      border: 1px solid rgba(24, 49, 59, 0.08);
+      font-size: 0.94rem;
+      line-height: 1.5;
+    }
+
+    .bookkeeping-offline-status[data-tone="success"] {
+      background: var(--offline-accent-soft);
+      border-color: rgba(31, 107, 79, 0.22);
+      color: var(--offline-accent);
+    }
+
+    @media (max-width: 760px) {
+      .bookkeeping-offline-upload-preferences {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .bookkeeping-offline-status[data-tone="warning"] {
+      background: var(--offline-warn-soft);
+      border-color: rgba(154, 90, 18, 0.2);
+      color: var(--offline-warn);
+    }
+
+    .bookkeeping-offline-status[data-tone="error"] {
+      background: var(--offline-error-soft);
+      border-color: rgba(138, 47, 47, 0.2);
+      color: var(--offline-error);
+    }
+
+    .bookkeeping-offline-queue {
+      display: grid;
+      gap: 0.8rem;
+      margin-top: 1rem;
+    }
+
+    .bookkeeping-offline-queue-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 1rem;
+      padding: 1rem;
+      border-radius: 18px;
+      border: 1px solid var(--offline-border);
+      background: rgba(255, 255, 255, 0.84);
+      align-items: start;
+    }
+
+    .bookkeeping-offline-queue-item.is-syncing {
+      border-color: rgba(31, 107, 79, 0.3);
+      background: rgba(219, 239, 228, 0.7);
+    }
+
+    .bookkeeping-offline-queue-item.is-failed {
+      border-color: rgba(138, 47, 47, 0.24);
+      background: rgba(246, 222, 222, 0.56);
+    }
+
+    .bookkeeping-offline-queue-item__kind {
+      display: inline-flex;
+      margin-bottom: 0.45rem;
+      padding: 0.35rem 0.6rem;
+      border-radius: 999px;
+      background: rgba(24, 49, 59, 0.08);
+      color: var(--offline-muted);
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .bookkeeping-offline-queue-item__title {
+      margin: 0;
+      font-size: 1rem;
+    }
+
+    .bookkeeping-offline-queue-item__meta {
+      margin: 0.35rem 0 0;
+      line-height: 1.5;
+      font-size: 0.92rem;
+    }
+
+    .bookkeeping-offline-queue-item__error {
+      margin-top: 0.55rem;
+      color: var(--offline-error);
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+
+    .bookkeeping-offline-queue-item__actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.55rem;
+    }
+
+    .bookkeeping-offline-table-wrap {
+      overflow: auto;
+      margin-top: 0.2rem;
+      border-radius: 18px;
+      border: 1px solid var(--offline-border);
+      background: rgba(255, 255, 255, 0.82);
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .bookkeeping-offline-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+    }
+
+    .bookkeeping-offline-table th,
+    .bookkeeping-offline-table td {
+      padding: 0.85rem 0.95rem;
+      border-bottom: 1px solid rgba(24, 49, 59, 0.08);
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.92rem;
+    }
+
+    .bookkeeping-offline-table th {
+      background: rgba(24, 49, 59, 0.05);
+      color: var(--offline-muted);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .bookkeeping-offline-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .bookkeeping-offline-empty {
+      padding: 1.2rem 0;
+      text-align: center;
+      font-size: 0.96rem;
+    }
+
+    .bookkeeping-offline-page .bookkeeping-table-pagination {
+      margin-top: 1rem;
+    }
+
+    .bookkeeping-offline-page .bookkeeping-table-pagination__summary {
+      color: var(--offline-muted);
+    }
+
+    .bookkeeping-offline-page .bookkeeping-table-pagination__status {
+      color: var(--offline-ink);
+    }
+
+    @media (max-width: 1120px) {
+      .bookkeeping-offline-hero__main,
+      .bookkeeping-offline-secondary-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 900px) {
+      .bookkeeping-offline-fields {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .bookkeeping-offline-shell {
+        width: min(100vw - 0.75rem, 100%);
+        padding: 0.6rem 0 1.7rem;
+      }
+
+      .bookkeeping-offline-hero,
+      .bookkeeping-offline-card {
+        border-radius: 20px;
+        padding: 1rem;
+      }
+
+      .bookkeeping-offline-hero__top,
+      .bookkeeping-offline-card__header,
+      .bookkeeping-offline-form__actions,
+      .bookkeeping-offline-toolbar {
+        align-items: stretch;
+      }
+
+      .bookkeeping-offline-hero__actions,
+      .bookkeeping-offline-file-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+
+      .bookkeeping-offline-queue-item {
+        grid-template-columns: 1fr;
+      }
+
+      .bookkeeping-offline-queue-item__actions {
+        align-items: stretch;
+      }
+
+      .bookkeeping-offline-hero__actions .btn,
+      .bookkeeping-offline-form__actions .btn,
+      .bookkeeping-offline-file-actions .btn,
+      .bookkeeping-offline-queue-item__actions .btn {
+        width: 100%;
+      }
+    }
+
+    @media (max-width: 420px) {
+      .bookkeeping-offline-badges {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body class="bookkeeping-offline-page">
+  <main class="bookkeeping-offline-shell">
+    <section class="bookkeeping-offline-hero">
+      <div class="bookkeeping-offline-hero__top">
+        <span class="bookkeeping-offline-pill is-ready">Offline Bookkeeping Workspace</span>
+        <div class="bookkeeping-offline-badges">
+          <span class="bookkeeping-offline-pill" id="connectivityBadge">Checking connection</span>
+          <span class="bookkeeping-offline-pill" id="offlineReadyBadge">Preparing offline cache</span>
+        </div>
+      </div>
+
+      <div class="bookkeeping-offline-hero__main">
+        <div class="bookkeeping-offline-hero__content">
+          <div class="bookkeeping-offline-hero__copy">
+            <span class="bookkeeping-eyebrow">Offline Bookkeeping</span>
+            <h1>{{ cbo.name }}</h1>
+            <p>Keep the bookkeeping database in the cells even when the network drops. This page stores workbook edits and scanned document images on the device first, then syncs the full table and files back to the server as soon as the connection returns.</p>
+          </div>
+          <div class="bookkeeping-offline-category-row" id="topCategoryRow"></div>
+        </div>
+
+        <aside class="bookkeeping-offline-hero__summary">
+          <div class="bookkeeping-offline-action-panel">
+            <div class="bookkeeping-offline-action-panel__top">
+              <div>
+                <span class="bookkeeping-offline-card__eyebrow">Workspace Sync</span>
+                <h2>Sync And Snapshot</h2>
+              </div>
+            </div>
+            <p class="bookkeeping-offline-action-panel__text">Queue workbook edits and scanned files locally, then push the full snapshot back to the cloud as soon as connectivity returns.</p>
+            <div class="bookkeeping-offline-hero__actions">
+              <button type="button" class="btn btn-primary btn-sm" id="syncNowBtn">Sync Now</button>
+              <button type="button" class="btn btn-outline btn-sm" id="refreshServerBtn">Refresh Server Snapshot</button>
+            </div>
+            <div class="bookkeeping-offline-action-panel__status">
+              <span class="bookkeeping-offline-note" id="lastSyncNote">Server snapshot not refreshed yet.</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="bookkeeping-offline-metrics" id="summaryMetrics"></div>
+    </section>
+
+    <div class="bookkeeping-offline-main">
+      <section class="bookkeeping-offline-card bookkeeping-offline-card--wide">
+        <div class="bookkeeping-offline-card__header">
+          <div>
+            <span class="bookkeeping-offline-card__eyebrow">Living Workbook</span>
+            <h2>Edit The Bookkeeping Database</h2>
+          </div>
+        </div>
+
+        <form id="workspaceWorkbookForm">
+          <div class="bookkeeping-offline-meta bookkeeping-offline-workbook-meta" id="workspaceWorkbookMeta"></div>
+          <div class="bookkeeping-offline-workbook-shell">
+            <p class="bookkeeping-sheet__note">Scroll inside the workbook to review all visible rows. Queue the full workbook snapshot when you are ready to sync it back to the cloud.</p>
+            <div class="bookkeeping-table-block bookkeeping-sheet-block">
+              <div class="bookkeeping-table-toolbar">
+                <h4>Cloud-Synced Ledger Grid</h4>
+                <div class="bookkeeping-table-controls">
+                  <button type="button" class="btn btn-outline btn-xs bookkeeping-table-control" id="offlineWorkspaceScrollLeft" aria-label="Scroll workbook table left">
+                    <i class="fas fa-arrow-left"></i> Left
+                  </button>
+                  <button type="button" class="btn btn-outline btn-xs bookkeeping-table-control" id="offlineWorkspaceScrollRight" aria-label="Scroll workbook table right">
+                    Right <i class="fas fa-arrow-right"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="bookkeeping-table-paginated bookkeeping-table-paginated--workspace">
+                <div class="bookkeeping-table-scroll bookkeeping-table-scroll--digitized bookkeeping-table-scroll--workspace bookkeeping-offline-workbook-scroll" id="offlineWorkspaceTableScroll">
+                  <table class="bookkeeping-table bookkeeping-table--digitized bookkeeping-table--sheet bookkeeping-table--database bookkeeping-offline-workbook-table">
+                    <thead id="workspaceGridHead"></thead>
+                    <tbody id="workspaceGridBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="bookkeeping-table-pagination" id="workspacePagination" hidden>
+            <span class="bookkeeping-table-pagination__summary" id="workspacePaginationSummary"></span>
+            <div class="bookkeeping-table-pagination__actions">
+              <button type="button" class="btn btn-outline btn-sm" id="workspacePrevPageBtn">Previous Page</button>
+              <span class="bookkeeping-table-pagination__status" id="workspacePaginationStatus"></span>
+              <button type="button" class="btn btn-outline btn-sm" id="workspaceNextPageBtn">Next Page</button>
+            </div>
+          </div>
+          <div class="bookkeeping-offline-form__actions">
+            <p class="bookkeeping-offline-note">Queue the full workbook state, not one row at a time. Existing imported rows stay editable here, and the cached table is preserved on the device between syncs.</p>
+            <button type="submit" class="btn btn-primary btn-sm">Queue Workbook Snapshot</button>
+          </div>
+        </form>
+      </section>
+
+      <div class="bookkeeping-offline-secondary-grid">
+        <section class="bookkeeping-offline-card">
+          <div class="bookkeeping-offline-card__header">
+            <div>
+              <span class="bookkeeping-offline-card__eyebrow">Documents</span>
+              <h2>Queue Images And PDFs</h2>
+            </div>
+          </div>
+
+          <div class="bookkeeping-offline-upload-box">
+            <div class="bookkeeping-offline-file-actions">
+              <label class="btn btn-primary btn-sm" for="offlineCameraInput">Capture Photo</label>
+              <label class="btn btn-outline btn-sm" for="offlineFileInput">Add Files</label>
+              <input id="offlineCameraInput" type="file" accept="image/*" capture="environment" hidden>
+              <input id="offlineFileInput" type="file" accept="image/*,.pdf" multiple hidden>
+            </div>
+
+            <div class="bookkeeping-offline-upload-preferences">
+              <label class="bookkeeping-offline-field">
+                <span class="bookkeeping-offline-field__label">Document Date</span>
+                <input id="offlineDocumentDate" type="date">
+                <span class="bookkeeping-offline-note">This determines which workbook month and year the document belongs to.</span>
+              </label>
+
+              <label class="bookkeeping-offline-checkbox">
+                <input id="offlineImportIntoWorkspace" type="checkbox">
+                <span class="bookkeeping-offline-checkbox__copy">
+                  <strong>Add extracted rows to the live workbook</strong>
+                  <small>Leave this off if the document should be digitized for review only, without changing the workbook.</small>
+                </span>
+              </label>
+            </div>
+
+            <label class="bookkeeping-offline-checkbox">
+              <input id="offlineCombinePages" type="checkbox">
+              <span>Keep files separate but share one batch group so matching rows can still align across pages when they sync.</span>
+            </label>
+
+            <p class="bookkeeping-offline-note">The device stores each selected file locally in IndexedDB, then uploads one file at a time with retry-safe submission IDs. PDF uploads still respect the {{ offline_payload.sync.max_pdf_pages }}-page server limit.</p>
+          </div>
+        </section>
+
+        <section class="bookkeeping-offline-card">
+          <div class="bookkeeping-offline-card__header">
+            <div>
+              <span class="bookkeeping-offline-card__eyebrow">Outbox</span>
+              <h2>Pending Sync Queue</h2>
+            </div>
+            <span class="bookkeeping-offline-pill" id="queueCountBadge">0 queued</span>
+          </div>
+
+          <div class="bookkeeping-offline-status" id="syncStatusMessage" data-tone="info">The outbox is empty.</div>
+          <div class="bookkeeping-offline-queue" id="queueList"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script id="bookkeepingOfflineBootstrap" type="application/json">{{ offline_payload|tojson }}</script>
+  <script src="{{ url_for('static', filename='js/bookkeeping_offline_app.js') }}"></script>
+</body>
+</html>
