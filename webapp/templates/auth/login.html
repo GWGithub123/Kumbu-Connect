@@ -1,51 +1,106 @@
 {% extends "base.html" %}
-{% block title %}Login — Kumbu Connect{% endblock %}
+{% from "_brand.html" import brand_logo %}
+{% set is_developer_login = login_variant == 'developer' %}
+{% block title %}{{ 'Developer Login' if is_developer_login else 'Login' }} — Kumbu Connect{% endblock %}
 
 {% block content %}
 <div class="auth-page">
-  <div class="auth-card">
+  <div class="auth-card{% if is_developer_login %} auth-card--developer{% endif %}">
     <div class="auth-header">
-      <i class="fas fa-handshake auth-logo"></i>
-      <h1>Kumbu Connect</h1>
-      <p class="auth-subtitle">Connecting Funders &amp; Community Organisations</p>
+      {{ brand_logo('auth', show_wordmark=False) }}
+      <h1>{{ 'Developer Login' if is_developer_login else 'Kumbu Connect' }}</h1>
+      <p class="auth-subtitle">{{ 'Kumbu Connect team access for the SMS activity backend.' if is_developer_login else 'Connecting Funders &amp; Community Organisations' }}</p>
     </div>
 
+    {% if is_developer_login %}
+    <div class="auth-callout">
+      Use Google sign-in to open SMS admin and CBO SMS activity screens.
+    </div>
+    {% else %}
     <!-- Role toggle -->
     <div class="role-toggle" id="roleToggle">
-      <button class="role-btn active" data-role="funder" type="button">
+      <button class="role-btn{% if selected_role != 'cbo' %} active{% endif %}" data-role="funder" type="button">
         <i class="fas fa-briefcase"></i> Funder
       </button>
-      <button class="role-btn" data-role="cbo" type="button">
+      <button class="role-btn{% if selected_role == 'cbo' %} active{% endif %}" data-role="cbo" type="button">
         <i class="fas fa-people-group"></i> CBO
       </button>
     </div>
+    {% endif %}
 
+    {% if is_developer_login %}
+    {% if developer_google.enabled %}
+    <a href="{{ url_for('auth.developer_google_start', next=request.args.get('next', '')) }}" class="btn btn-primary btn-block btn-google-login">
+      <i class="fab fa-google"></i> Continue With Google
+    </a>
+    {% if developer_google.allowed_emails %}
+    <p class="auth-footer-text">Allowed Google accounts: {{ developer_google.allowed_emails | join(', ') }}</p>
+    {% endif %}
+    {% else %}
+    <div class="auth-callout auth-callout--error">
+      {{ developer_google.error }}
+    </div>
+    {% endif %}
+    {% else %}
     <form method="POST" action="{{ url_for('auth.login') }}">
-      <input type="hidden" name="role" id="roleInput" value="funder">
+      {% if request.args.get('next') %}
+      <input type="hidden" name="next" value="{{ request.args.get('next') }}">
+      {% endif %}
+      <input type="hidden" name="role" id="roleInput" value="{{ selected_role or 'funder' }}">
 
       <div class="form-group">
         <label for="email">Email</label>
-        <input type="email" id="email" name="email" placeholder="you@example.com">
+        <input type="email" id="email" name="email" value="{{ prefill_email or '' }}" placeholder="you@example.com" required>
       </div>
 
       <div class="form-group">
         <label for="password">Password</label>
-        <input type="password" id="password" name="password" placeholder="••••••••">
+        <input type="password" id="password" name="password" placeholder="••••••••" required>
       </div>
 
       <button type="submit" class="btn btn-primary btn-block">
         <i class="fas fa-sign-in-alt"></i> Log In
       </button>
+
+      {% if temp_login_bypass_enabled %}
+      <button type="submit" name="action" value="bypass" formnovalidate class="btn btn-outline btn-block" style="margin-top:0.75rem;">
+        <i class="fas fa-unlock"></i> Temporary Password Bypass
+      </button>
+      <div class="auth-callout" style="margin-top:0.75rem;">
+        Temporary local bypass is enabled. It ignores the email field and signs you into the selected role's temporary workspace.
+      </div>
+      {% endif %}
     </form>
 
+    {% if google_user and google_user.enabled %}
+    <div class="auth-callout" style="margin-top:1rem;">
+      Already matched to a pre-built CBO account?
+    </div>
+    <a href="{{ url_for('auth.google_login_start', next=request.args.get('next', ''), email=prefill_email or '') }}" class="btn btn-outline btn-block btn-google-login" style="margin-top:0.75rem;">
+      <i class="fab fa-google"></i> Continue With Google
+    </a>
+    {% elif google_user and google_user.error %}
+    <div class="auth-callout auth-callout--error" style="margin-top:1rem;">
+      {{ google_user.error }}
+    </div>
+    {% endif %}
+    {% endif %}
+
     <p class="auth-footer-text">
-      Don't have an account? <a href="{{ url_for('auth.register') }}">Register here</a>
+      {% if is_developer_login %}
+      Funder or CBO account? <a href="{{ url_for('auth.login') }}">Use standard login</a>
+      {% else %}
+      Need a pre-built CBO account? <a href="{{ url_for('auth.claim_account', email=prefill_email or '') }}">Claim account</a><br>
+      Need a new account? <a href="{{ url_for('auth.register', email=prefill_email or '') }}">Register</a><br>
+      Kumbu Connect team? <a href="{{ url_for('auth.developer_login') }}">Developer login</a>
+      {% endif %}
     </p>
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+{% if not is_developer_login %}
 <script>
 document.querySelectorAll('.role-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -55,4 +110,5 @@ document.querySelectorAll('.role-btn').forEach(btn => {
   });
 });
 </script>
+{% endif %}
 {% endblock %}

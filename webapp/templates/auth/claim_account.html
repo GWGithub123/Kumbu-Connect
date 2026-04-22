@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "_brand.html" import brand_logo %}
+{% block title %}Claim CBO Account — Kumbu Connect{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-header">
+      {{ brand_logo('auth', show_wordmark=False) }}
+      <h1>Claim Your CBO Account</h1>
+      <p class="auth-subtitle">Use the same email you submitted in the intake form to activate your pre-built workspace or finish setting up your password.</p>
+    </div>
+
+    {% if pending_user %}
+    <div class="auth-callout">
+      <strong>{{ pending_user.cbo.name if pending_user.cbo else pending_user.display_name }}</strong><br>
+      {% if pending_user.needs_password_setup and pending_user.account_status == 'active' %}
+      This account is already linked and just needs a password for {{ pending_user.email }}.
+      {% else %}
+      This account is ready to activate for {{ pending_user.email }}.
+      {% endif %}
+    </div>
+
+    <form method="POST" action="{{ url_for('auth.claim_account') }}">
+      <input type="hidden" name="action" value="activate">
+      <input type="hidden" name="email" value="{{ pending_user.email }}">
+
+      <div class="form-group">
+        <label for="display_name">Full Name</label>
+        <input type="text" id="display_name" name="display_name" value="{{ pending_user.display_name }}" placeholder="Your full name">
+      </div>
+
+      <div class="form-group">
+        <label for="password">Create Password</label>
+        <input type="password" id="password" name="password" minlength="6" required placeholder="min 6 characters">
+      </div>
+
+      <div class="form-group">
+        <label for="password_confirm">Confirm Password</label>
+        <input type="password" id="password_confirm" name="password_confirm" minlength="6" required placeholder="repeat password">
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block">
+        <i class="fas fa-user-check"></i> {% if pending_user.needs_password_setup and pending_user.account_status == 'active' %}Save Password{% else %}Activate Account{% endif %}
+      </button>
+    </form>
+
+    {% if google_user and google_user.enabled %}
+    <div class="auth-callout" style="margin-top:1rem;">
+      Prefer Google sign-in? Use the same email address and the account will be linked automatically.
+    </div>
+    <a href="{{ url_for('auth.google_login_start', email=pending_user.email) }}" class="btn btn-outline btn-block btn-google-login" style="margin-top:0.75rem;">
+      <i class="fab fa-google"></i> Continue With Google
+    </a>
+    {% endif %}
+    {% else %}
+    <form method="POST" action="{{ url_for('auth.claim_account') }}">
+      <input type="hidden" name="action" value="lookup">
+
+      <div class="form-group">
+        <label for="email">Email Used In The Intake Form</label>
+        <input type="email" id="email" name="email" value="{{ email or '' }}" placeholder="you@example.com" required>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block">
+        <i class="fas fa-magnifying-glass"></i> Find My Account
+      </button>
+    </form>
+    {% endif %}
+
+    <p class="auth-footer-text">
+      Already active? <a href="{{ url_for('auth.login', email=email or (pending_user.email if pending_user else ''), role='cbo') }}">Log in</a><br>
+      Need a brand new account? <a href="{{ url_for('auth.register', email=email or (pending_user.email if pending_user else '')) }}">Register</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

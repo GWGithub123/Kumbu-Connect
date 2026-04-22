@@ -1,3 +1,4 @@
+{% from "_brand.html" import brand_logo %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,34 +9,47 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤝</text></svg>">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/kumbu-connect-logo-mark.png') }}">
   {% block head %}{% endblock %}
 </head>
-<body>
+<body{% if embedded_layout %} class="embedded-layout"{% endif %}>
+  {% set has_developer_access = current_user.is_authenticated and session.get('developer_access') %}
+  {% set google_profile_picture_url = session.get('google_profile_picture_url') if current_user.is_authenticated and session.get('auth_provider') == 'google' else '' %}
+  {% if not embedded_layout %}
   <!-- ── Navbar ─────────────────────────────────────────────── -->
   <nav class="navbar">
     <div class="nav-inner">
       <a href="{{ url_for('main.index') }}" class="nav-brand">
-        <i class="fas fa-handshake"></i> Kumbu Connect
+        {{ brand_logo('nav') }}
       </a>
       <div class="nav-links">
         {% if current_user.is_authenticated %}
-          {% if current_user.role == 'funder' %}
-            <a href="{{ url_for('main.marketplace') }}">Marketplace</a>
+          {% if has_developer_access %}
+            <a href="{{ url_for('main.developer_sms_activity') }}">SMS Activity</a>
             <a href="{{ url_for('main.community_feedback_admin') }}">SMS Admin</a>
           {% else %}
-            <a href="{{ url_for('main.cbo_dashboard') }}">My Profile</a>
-            {% if current_user.cbo_id %}
+            {% if current_user.has_role('funder') %}
+              <a href="{{ url_for('main.marketplace') }}">Marketplace</a>
+            {% endif %}
+            {% if current_user.has_role('cbo') and current_user.cbo_id %}
+              <a href="{{ url_for('main.cbo_dashboard') }}">My Profile</a>
               <a href="{{ url_for('main.community_feedback_cbo_detail', cbo_id=current_user.cbo_id) }}">SMS Activity</a>
             {% endif %}
           {% endif %}
           <span class="nav-user">
-            <i class="fas fa-user-circle"></i> {{ current_user.display_name }}
-            <span class="badge badge-{{ current_user.role }}">{{ current_user.role|upper }}</span>
+            {% if google_profile_picture_url %}
+              <img src="{{ google_profile_picture_url }}" alt="{{ current_user.display_name }} Google profile photo" class="nav-avatar" referrerpolicy="no-referrer">
+            {% else %}
+              <span class="nav-avatar nav-avatar--fallback" aria-hidden="true"><i class="fas fa-user-circle"></i></span>
+            {% endif %}
+            <span class="nav-user__name">{{ current_user.display_name }}</span>
+            <span class="badge {{ 'badge-developer' if has_developer_access else 'badge-' ~ current_user.role_badge_class }}">{{ 'DEVELOPER' if has_developer_access else current_user.role_badge_label }}</span>
           </span>
           <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline">Logout</a>
         {% else %}
-          <a href="{{ url_for('auth.login') }}" class="btn btn-sm btn-primary">Login</a>
+          <a href="{{ url_for('auth.login') }}">Login</a>
+          <a href="{{ url_for('auth.claim_account') }}" class="btn btn-sm btn-outline">Claim CBO Account</a>
+          <a href="{{ url_for('auth.developer_login') }}" class="btn btn-sm btn-primary">Developer Login</a>
         {% endif %}
       </div>
     </div>
@@ -54,18 +68,21 @@
       {% endif %}
     {% endwith %}
   </div>
+  {% endif %}
 
   <!-- ── Main content ────────────────────────────────────────── -->
   <main>
     {% block content %}{% endblock %}
   </main>
 
+  {% if not embedded_layout %}
   <!-- ── Footer ──────────────────────────────────────────────── -->
   <footer class="site-footer">
     <div class="container">
       <p>&copy; 2026 Kumbu Connect — Empowering Rural Communities Through Data-Driven Partnerships</p>
     </div>
   </footer>
+  {% endif %}
 
   {% block scripts %}{% endblock %}
 </body>

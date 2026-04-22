@@ -1,0 +1,10 @@
+{% macro brand_logo(variant='nav', show_wordmark=True) -%}
+<span class="brand-logo brand-logo--{{ variant }}" aria-label="Kumbu Connect">
+  <span class="brand-logo__mark" aria-hidden="true">
+    <img src="{{ url_for('static', filename='img/kumbu-connect-logo-mark.png') }}" alt="" class="brand-logo__image">
+  </span>
+  {% if show_wordmark %}
+  <span class="brand-logo__wordmark">Kumbu Connect</span>
+  {% endif %}
+</span>
+{%- endmacro %}

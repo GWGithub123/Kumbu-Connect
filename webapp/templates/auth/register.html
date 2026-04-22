@@ -1,36 +1,40 @@
 {% extends "base.html" %}
+{% from "_brand.html" import brand_logo %}
 {% block title %}Register — Kumbu Connect{% endblock %}
 
 {% block content %}
 <div class="auth-page">
   <div class="auth-card">
     <div class="auth-header">
-      <i class="fas fa-handshake auth-logo"></i>
+      {{ brand_logo('auth', show_wordmark=False) }}
       <h1>Create Account</h1>
       <p class="auth-subtitle">Join the Kumbu Connect platform</p>
     </div>
 
     <!-- Role toggle -->
     <div class="role-toggle" id="roleToggle">
-      <button class="role-btn active" data-role="funder" type="button">
+      <button class="role-btn{% if selected_role != 'cbo' %} active{% endif %}" data-role="funder" type="button">
         <i class="fas fa-briefcase"></i> Funder
       </button>
-      <button class="role-btn" data-role="cbo" type="button">
+      <button class="role-btn{% if selected_role == 'cbo' %} active{% endif %}" data-role="cbo" type="button">
         <i class="fas fa-people-group"></i> CBO
       </button>
     </div>
 
     <form method="POST" action="{{ url_for('auth.register') }}">
-      <input type="hidden" name="role" id="roleInput" value="funder">
+      {% if next_url %}
+      <input type="hidden" name="next" value="{{ next_url }}">
+      {% endif %}
+      <input type="hidden" name="role" id="roleInput" value="{{ selected_role or 'funder' }}">
 
       <div class="form-group">
         <label for="display_name">Full Name</label>
-        <input type="text" id="display_name" name="display_name" required placeholder="Jane Smith">
+        <input type="text" id="display_name" name="display_name" value="{{ prefill_display_name or '' }}" required placeholder="Jane Smith">
       </div>
 
       <div class="form-group">
         <label for="email">Email</label>
-        <input type="email" id="email" name="email" required placeholder="you@example.com">
+        <input type="email" id="email" name="email" value="{{ prefill_email or '' }}" required placeholder="you@example.com">
       </div>
 
       <div class="form-group">
@@ -39,18 +43,33 @@
       </div>
 
       <!-- CBO-only field -->
-      <div class="form-group cbo-only" id="cboField" style="display:none;">
+      <div class="form-group cbo-only" id="cboField" style="display:{% if selected_role == 'cbo' %}block{% else %}none{% endif %};">
         <label for="cbo_name">Organisation Name</label>
-        <input type="text" id="cbo_name" name="cbo_name" placeholder="e.g. Busia Community Tool Hub">
+        <input type="text" id="cbo_name" name="cbo_name" value="{{ prefill_cbo_name or '' }}" placeholder="e.g. Busia Community Tool Hub">
       </div>
 
       <button type="submit" class="btn btn-primary btn-block">
         <i class="fas fa-user-plus"></i> Create Account
       </button>
+
+      {% if google_user and google_user.enabled %}
+      <button type="submit" formaction="{{ url_for('auth.google_register_start') }}" formmethod="post" formnovalidate class="btn btn-outline btn-block btn-google-login" style="margin-top:1rem;">
+        <i class="fab fa-google"></i> Create Account With Google
+      </button>
+      <div class="auth-callout" style="margin-top:0.75rem;">
+        Google registration uses the selected role. For CBO registration, enter the organisation name before continuing.
+      </div>
+      {% elif google_user and google_user.error %}
+      <div class="auth-callout auth-callout--error" style="margin-top:1rem;">
+        {{ google_user.error }}
+      </div>
+      {% endif %}
     </form>
 
     <p class="auth-footer-text">
-      Already have an account? <a href="{{ url_for('auth.login') }}">Log in</a>
+      Already have a pre-built CBO account? <a href="{{ url_for('auth.claim_account', email=prefill_email or '') }}">Claim it</a><br>
+      Already have an account? <a href="{{ url_for('auth.login', email=prefill_email or '') }}">Log in</a><br>
+      Kumbu Connect team? <a href="{{ url_for('auth.developer_login') }}">Developer login</a>
     </p>
   </div>
 </div>

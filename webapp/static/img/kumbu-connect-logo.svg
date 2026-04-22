@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 186 117" role="img" aria-labelledby="title desc">
+  <title id="title">Kumbu Connect logo</title>
+  <desc id="desc">A purple rounded rectangle containing a stylized handshake with pink, orange, and gold gradients.</desc>
+  <defs>
+    <linearGradient id="leftSleeve" x1="18" y1="70" x2="94" y2="18" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8d34ff"/>
+      <stop offset="0.55" stop-color="#d63dc3"/>
+      <stop offset="1" stop-color="#ff7c8f"/>
+    </linearGradient>
+    <linearGradient id="rightSleeve" x1="92" y1="18" x2="170" y2="74" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff9d29"/>
+      <stop offset="0.58" stop-color="#ffb63b"/>
+      <stop offset="1" stop-color="#ffc54b"/>
+    </linearGradient>
+    <linearGradient id="upperHand" x1="81" y1="28" x2="132" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff728d"/>
+      <stop offset="1" stop-color="#ff8a3b"/>
+    </linearGradient>
+    <linearGradient id="lowerHand" x1="61" y1="62" x2="140" y2="102" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff9831"/>
+      <stop offset="1" stop-color="#ffb43d"/>
+    </linearGradient>
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#28104a" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+
+  <rect x="3" y="3" width="180" height="111" rx="22" fill="#5a278e"/>
+
+  <g filter="url(#softGlow)">
+    <path d="M23 60L58 24C60 22 64 22 67 24L93 40C96 42 96 47 93 50L59 80C56 82 53 82 49 80L22 65C18 63 18 61 23 60Z" fill="url(#leftSleeve)" stroke="#45206f" stroke-width="4.5" stroke-linejoin="round"/>
+    <path d="M93 40L119 24C122 22 126 22 128 24L163 60C168 61 168 63 164 65L137 80C133 82 130 82 127 80L93 50C90 47 90 42 93 40Z" fill="url(#rightSleeve)" stroke="#45206f" stroke-width="4.5" stroke-linejoin="round"/>
+
+    <path d="M85 35L95 26C100 22 108 22 113 26L126 37C130 40 131 46 127 50L112 65C109 68 104 69 100 69C95 69 91 68 88 65L81 58C77 54 78 47 82 43L94 32" fill="url(#upperHand)" stroke="#45206f" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <path d="M64 69C68 62 76 60 82 62L95 74C99 77 104 76 108 72L116 64C121 60 129 61 134 66L141 73C144 76 145 81 142 85L123 100C117 104 109 105 102 103L87 99C83 98 79 96 76 94L65 86C59 82 58 75 64 69Z" fill="url(#lowerHand)" stroke="#45206f" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <path d="M58 29L83 45" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/>
+    <path d="M129 29L108 46" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/>
+    <path d="M96 31L105 39" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/>
+    <path d="M88 56L97 64" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/>
+
+    <path d="M79 74L67 85" fill="none" stroke="#f59f31" stroke-width="7" stroke-linecap="round"/>
+    <path d="M90 79L78 91" fill="none" stroke="#f6a334" stroke-width="7" stroke-linecap="round"/>
+    <path d="M101 84L90 96" fill="none" stroke="#f7a838" stroke-width="7" stroke-linecap="round"/>
+    <path d="M112 88L101 100" fill="none" stroke="#f9ad3a" stroke-width="7" stroke-linecap="round"/>
+  </g>
+</svg>
