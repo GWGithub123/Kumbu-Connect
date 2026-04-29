@@ -228,16 +228,23 @@ def _store_binary_file(
     object_path = f'{object_prefix.rstrip("/")}/cbo-{cbo_id}/{stored_name}'
 
     if bucket_name:
-        app = _get_firebase_app(bucket_name)
-        bucket = storage.bucket(name=bucket_name, app=app)
-        blob = bucket.blob(object_path)
-        blob.upload_from_string(file_bytes, content_type=mime_type)
-        return {
-            'storage_backend': 'firebase',
-            'stored_path': object_path,
-            'storage_bucket': bucket_name,
-            'storage_object_path': object_path,
-        }
+        try:
+            app = _get_firebase_app(bucket_name)
+            bucket = storage.bucket(name=bucket_name, app=app)
+            blob = bucket.blob(object_path)
+            blob.upload_from_string(file_bytes, content_type=mime_type)
+            return {
+                'storage_backend': 'firebase',
+                'stored_path': object_path,
+                'storage_bucket': bucket_name,
+                'storage_object_path': object_path,
+            }
+        except Exception:
+            current_app.logger.exception(
+                'Failed to store uploaded file %s for CBO %s in Firebase Storage; falling back to local storage',
+                filename,
+                cbo_id,
+            )
 
     if not current_app.config.get('ALLOW_LOCAL_FILE_STORAGE_FALLBACK', True):
         raise RuntimeError(

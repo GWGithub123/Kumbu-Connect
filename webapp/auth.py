@@ -525,8 +525,9 @@ def _developer_user_from_google_profile(profile: dict) -> User:
     if allowed_emails and email not in allowed_emails:
         raise RuntimeError('This Google account is not allowed to use the developer login.')
 
+    bypass_emails = current_app.config.get('GOOGLE_DEVELOPER_EXISTING_USER_BYPASS_EMAILS') or []
     user = User.query.filter_by(email=email).first()
-    if user and not user.has_role('funder'):
+    if user and not user.has_role('funder') and email not in bypass_emails:
         raise RuntimeError('This Google account is already linked to a non-developer user.')
 
     if not user:

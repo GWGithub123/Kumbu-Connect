@@ -170,6 +170,10 @@ class Config:
         'FUNDING_AUDIT_UPLOAD_DIR',
         os.path.join(os.path.dirname(__file__), 'instance', 'funding_audit_uploads'),
     ).strip()
+    CONTACT_UPLOAD_DIR = os.environ.get(
+        'CONTACT_UPLOAD_DIR',
+        os.path.join(os.path.dirname(__file__), 'instance', 'contact_uploads'),
+    ).strip()
     BOOKKEEPING_MAX_FILES = int(os.environ.get('BOOKKEEPING_MAX_FILES', '5') or 5)
     BOOKKEEPING_MAX_PDF_PAGES = int(os.environ.get('BOOKKEEPING_MAX_PDF_PAGES', '10') or 10)
     PUBLIC_BASE_URL = os.environ.get(
@@ -259,6 +263,11 @@ class Config:
     GOOGLE_DEVELOPER_ALLOWED_EMAILS = [
         email.strip().lower()
         for email in os.environ.get('GOOGLE_DEVELOPER_ALLOWED_EMAILS', '').split(',')
+        if email.strip()
+    ]
+    GOOGLE_DEVELOPER_EXISTING_USER_BYPASS_EMAILS = [
+        email.strip().lower()
+        for email in os.environ.get('GOOGLE_DEVELOPER_EXISTING_USER_BYPASS_EMAILS', '').split(',')
         if email.strip()
     ]
 

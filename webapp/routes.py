@@ -18,7 +18,7 @@ from io import StringIO
 from urllib.request import urlopen
 from urllib.parse import parse_qs, urlencode, urlparse
 from anthropic import APIConnectionError, APIStatusError, APITimeoutError, Anthropic, BadRequestError, RateLimitError
-from flask import Blueprint, render_template, redirect, url_for, flash, abort, jsonify, request, current_app, send_file, Response, session
+from flask import Blueprint, render_template, redirect, url_for, flash, abort, jsonify, request, current_app, send_file, Response, session, has_request_context
 from flask_login import login_required, current_user
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 import qrcode
@@ -42,9 +42,22 @@ from .firebase_storage_service import (
 )
 from .document_ingestion_service import DocumentIngestionError, prepare_document_bytes, prepare_uploaded_document
 from .maps_service import ensure_cbo_geocoded, get_google_maps_api_key
-from .models import db, BookkeepingDocument, CBO, CommunitySubscriber, CommunityFeedback, FundingAuditDocument, GoogleFormResponse, GoogleFormUpload, User
+from .models import (
+    db,
+    BookkeepingDocument,
+    CBO,
+    CBOContactMessage,
+    CBOContactThread,
+    CommunitySubscriber,
+    CommunityFeedback,
+    FundingAuditDocument,
+    GoogleFormResponse,
+    GoogleFormUpload,
+    SavedCBO,
+    User,
+)
 from .kobo_service import fetch_kobo_submissions
-from .gemini_service import analyse_kobo_data, interpret_marketplace_query, rank_marketplace_candidates
+from .gemini_service import analyse_kobo_data, answer_marketplace_cbo_question, interpret_marketplace_query, rank_marketplace_candidates
 from .bookkeeping_audit_service import audit_bookkeeping_document, audit_bookkeeping_group
 from .funding_audit_service import FundingAuditError, build_funding_audit_payload, observed_charitable_giving
 from .openai_bookkeeping_service import BookkeepingExtractionError, extract_bookkeeping_document, refine_extracted_bookkeeping_payload
@@ -111,6 +124,7 @@ def marketplace():
     ai_search = interpret_marketplace_query(q) if q else None
     ai_filters = ai_search.get('structured_filters', {}) if ai_search else {}
     ai_preferences = ai_search.get('qualitative_preferences', {}) if ai_search else {}
+    saved_cbo_ids = _saved_cbo_ids_for_user(current_user)
 
     f_class = classification_arg or (ai_filters.get('classification', '').strip().lower() if ai_filters else '')
     f_badge = badge_arg or (ai_filters.get('badge', '').strip().lower() if ai_filters else '')
@@ -170,6 +184,8 @@ def marketplace():
             'rentals_growth': rentals_growth,
             'total_revenue': total_revenue,
             'ai_match': None,
+            'can_save_by_viewer': _viewer_can_save_cbos(current_user) and not _user_owns_cbo(current_user, cbo),
+            'saved_by_viewer': cbo.id in saved_cbo_ids,
         })
 
     ai_ranking_summary = ''
@@ -247,6 +263,91 @@ def marketplace():
                            min_rating_display=min_rating_arg if min_rating_arg else (f_min_rating if f_min_rating else ''))
 
 
+@main_bp.route('/saved-cbos')
+@login_required
+def saved_cbos():
+    _require_funder()
+
+    saved_entries = SavedCBO.query.filter_by(user_id=current_user.id).order_by(SavedCBO.created_at.desc()).all()
+    thread_lookup = _contact_threads_for_funder_by_cbo(current_user)
+    saved_cards = []
+    for saved_entry in saved_entries:
+        cbo = saved_entry.cbo
+        if cbo is None:
+            continue
+        profile = _safe_json(cbo.ai_profile_json)
+        classifications = _safe_json_list(cbo.classifications_json)
+        community_feedback = _community_feedback_summary(cbo)
+        featured_quote = community_feedback.get('featured_quote') if isinstance(community_feedback, dict) else {}
+        featured_quote_text = ''
+        if isinstance(featured_quote, dict):
+            featured_quote_text = str(featured_quote.get('quote') or '').strip()
+        elif featured_quote:
+            featured_quote_text = str(featured_quote).strip()
+
+        if not featured_quote_text and isinstance(community_feedback, dict):
+            recent_quotes = community_feedback.get('recent_quotes') or []
+            if recent_quotes and isinstance(recent_quotes[0], dict):
+                featured_quote_text = str(recent_quotes[0].get('quote') or '').strip()
+
+        growth_data = _safe_json_list(cbo.growth_metrics_json)
+        revenue_growth = _compute_growth_rate(growth_data, 'revenue')
+        total_revenue = sum(item.get('revenue', 0) for item in growth_data if isinstance(item, dict))
+        contact_thread = thread_lookup.get(cbo.id)
+        saved_cards.append({
+            'saved_entry': saved_entry,
+            'cbo': cbo,
+            'profile': profile,
+            'classifications': classifications,
+            'community_feedback': community_feedback,
+            'badge': cbo.data_quality_badge or 'bronze',
+            'score': cbo.social_impact_score or 0,
+            'revenue_growth': revenue_growth,
+            'total_revenue': total_revenue,
+            'ai_match': None,
+            'can_save_by_viewer': True,
+            'saved_by_viewer': True,
+            'contact_thread': _serialize_contact_thread(contact_thread, current_user=current_user),
+            'contact_post_url': url_for('main.send_cbo_contact_message', slug=cbo.slug),
+        })
+
+    return render_template('saved_cbos.html', saved_cards=saved_cards)
+
+
+@main_bp.route('/marketplace/messages/<int:thread_id>/delete', methods=['POST'])
+@login_required
+def delete_cbo_contact_thread(thread_id):
+    _require_funder()
+    thread = CBOContactThread.query.filter_by(id=thread_id, funder_user_id=current_user.id).first_or_404()
+    CBOContactMessage.query.filter_by(thread_id=thread.id).delete()
+    db.session.delete(thread)
+    db.session.commit()
+    flash('Conversation cleared.', 'success')
+    return redirect(url_for('main.marketplace_messages'))
+
+
+@main_bp.route('/marketplace/messages')
+@login_required
+def marketplace_messages():
+    _require_funder()
+
+    message_threads = _serialize_contact_threads_for_funder(current_user)
+    selected_thread_id = request.args.get('thread', type=int)
+    active_message_thread = next(
+        (
+            item for item in message_threads
+            if int(((item.get('thread') or {}).get('id')) or 0) == int(selected_thread_id or 0)
+        ),
+        None,
+    )
+
+    return render_template(
+        'marketplace_messages.html',
+        message_threads=message_threads,
+        active_message_thread=active_message_thread,
+    )
+
+
 # ── CBO's own dashboard ──────────────────────────────────────────
 @main_bp.route('/dashboard')
 @login_required
@@ -254,14 +355,15 @@ def cbo_dashboard():
     if not _user_has_cbo_role(current_user) or not current_user.cbo:
         return redirect(url_for('main.marketplace'))
     cbo = current_user.cbo
-    profile = _safe_json(cbo.ai_profile_json)
-    community_feedback = _community_feedback_summary(cbo)
-    bookkeeping_summary = _bookkeeping_summary(cbo)
+    community_feedback = _community_feedback_summary(cbo, include_entries=True)
+    profile, bookkeeping_summary = _resolve_cbo_profile_snapshot(cbo)
     return render_template(
         'cbo_profile.html',
         cbo=cbo,
         profile=profile,
         own=True,
+        viewer_can_save=False,
+        saved_by_viewer=False,
         viewer_is_funder=False,
         can_manage_bookkeeping=_can_manage_bookkeeping(cbo),
         community_feedback=community_feedback,
@@ -269,6 +371,9 @@ def cbo_dashboard():
         bookkeeping_offline=_bookkeeping_offline_context(cbo),
         funding_audit_summary=_funding_audit_summary(cbo),
         mobile_scan=_bookkeeping_mobile_scan_context(cbo),
+        contact_threads=_serialize_contact_threads_for_cbo(cbo, current_user=current_user),
+        viewer_contact_thread=None,
+        contact_post_url=url_for('main.send_cbo_contact_message', slug=cbo.slug),
     )
 
 
@@ -278,11 +383,13 @@ def cbo_dashboard():
 def cbo_profile(slug):
     cbo = CBO.query.filter_by(slug=slug).first_or_404()
     _require_feedback_access(cbo)
-    profile = _safe_json(cbo.ai_profile_json)
     own = _user_owns_cbo(current_user, cbo)
     viewer_is_funder = _user_has_funder_role(current_user) and not own
-    community_feedback = _community_feedback_summary(cbo)
-    bookkeeping_summary = _bookkeeping_summary(cbo)
+    viewer_can_save = _viewer_can_save_cbos(current_user) and not own
+    saved_by_viewer = _is_cbo_saved_by_user(cbo, current_user) if viewer_can_save else False
+    community_feedback = _community_feedback_summary(cbo, include_entries=True)
+    profile, bookkeeping_summary = _resolve_cbo_profile_snapshot(cbo)
+    viewer_contact_thread = _serialize_contact_thread(_contact_thread_for_viewer(cbo), current_user=current_user)
     isolated_view = str(request.args.get('isolated') or '').strip().lower()
     embedded_layout = str(request.args.get('embedded') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
     if isolated_view not in {'profile', 'bookkeeping-live', 'bookkeeping-digitized'}:
@@ -292,6 +399,8 @@ def cbo_profile(slug):
         cbo=cbo,
         profile=profile,
         own=own,
+        viewer_can_save=viewer_can_save,
+        saved_by_viewer=saved_by_viewer,
         viewer_is_funder=viewer_is_funder,
         can_manage_bookkeeping=_can_manage_bookkeeping(cbo),
         isolated_view=isolated_view,
@@ -301,7 +410,102 @@ def cbo_profile(slug):
         bookkeeping_offline=_bookkeeping_offline_context(cbo),
         funding_audit_summary=_funding_audit_summary(cbo),
         mobile_scan=_bookkeeping_mobile_scan_context(cbo),
+        contact_threads=_serialize_contact_threads_for_cbo(cbo, current_user=current_user),
+        viewer_contact_thread=viewer_contact_thread,
+        contact_post_url=url_for('main.send_cbo_contact_message', slug=cbo.slug) if viewer_is_funder or own else None,
     )
+
+
+@main_bp.route('/cbo/<slug>/contact', methods=['POST'])
+@login_required
+def send_cbo_contact_message(slug):
+    cbo = CBO.query.filter_by(slug=slug).first_or_404()
+    _require_feedback_access(cbo)
+
+    if _has_developer_access():
+        _require_sms_activity_access(cbo)
+        sender_role = 'cbo'
+        thread_id = request.form.get('thread_id', type=int)
+        thread = CBOContactThread.query.filter_by(id=thread_id, cbo_id=cbo.id).first()
+        if thread is None:
+            flash('Choose a funder conversation before sending a reply.', 'danger')
+            return redirect(url_for('main.community_feedback_cbo_detail', cbo_id=cbo.id, _anchor='funder-messages'))
+    elif _user_has_funder_role(current_user) and not _user_owns_cbo(current_user, cbo):
+        sender_role = 'funder'
+        thread = _get_or_create_contact_thread(cbo, current_user)
+    elif _user_owns_cbo(current_user, cbo):
+        sender_role = 'cbo'
+        thread_id = request.form.get('thread_id', type=int)
+        thread = CBOContactThread.query.filter_by(id=thread_id, cbo_id=cbo.id).first()
+        if thread is None:
+            flash('Choose a funder conversation before sending a reply.', 'danger')
+            return redirect(url_for('main.cbo_profile', slug=cbo.slug, _anchor='contact-cbo'))
+    else:
+        abort(403)
+
+    message_text = str(request.form.get('message_body') or '').strip()
+    attachment = request.files.get('attachment')
+    attachment_present = bool(attachment and attachment.filename)
+
+    if not message_text and not attachment_present:
+        flash('Add a message or choose a file before sending.', 'danger')
+        return redirect(_contact_redirect_target(cbo, sender_role, thread))
+
+    stored = None
+    filename = ''
+    mime_type = 'application/octet-stream'
+    file_size_bytes = 0
+    if attachment_present:
+        filename = secure_filename(attachment.filename or 'contact-file')
+        mime_type = attachment.mimetype or _guess_mime_type(filename)
+        if not _allowed_contact_upload(filename, mime_type):
+            flash('Upload a PDF, image, spreadsheet, document, or CSV file for CBO contact.', 'danger')
+            return redirect(_contact_redirect_target(cbo, sender_role, thread))
+        attachment_bytes = attachment.read()
+        file_size_bytes = len(attachment_bytes)
+        if not attachment_bytes:
+            flash('The selected file was empty.', 'danger')
+            return redirect(_contact_redirect_target(cbo, sender_role, thread))
+        stored = _store_contact_attachment(cbo, filename, attachment_bytes)
+
+    message = CBOContactMessage(
+        thread=thread,
+        sender=current_user,
+        sender_role=sender_role,
+        message_body=message_text,
+        original_filename=filename,
+        mime_type=(stored or {}).get('mime_type', mime_type),
+        storage_backend=(stored or {}).get('storage_backend', 'local'),
+        storage_bucket=(stored or {}).get('storage_bucket', ''),
+        storage_object_path=(stored or {}).get('storage_object_path', ''),
+        stored_path=(stored or {}).get('stored_path', ''),
+        file_size_bytes=file_size_bytes,
+    )
+    thread.last_message_at = datetime.utcnow()
+    db.session.add(message)
+    db.session.add(thread)
+    db.session.commit()
+
+    flash('Contact sent successfully.', 'success')
+    return redirect(_contact_redirect_target(cbo, sender_role, thread))
+
+
+@main_bp.route('/contact-message/<int:message_id>/file')
+@login_required
+def contact_message_file(message_id):
+    message = CBOContactMessage.query.get_or_404(message_id)
+    _require_contact_thread_access(message.thread)
+    if not message.stored_path:
+        abort(404)
+
+    file_bytes, mime_type = get_stored_file_bytes(
+        storage_backend=message.storage_backend or 'local',
+        stored_path=message.stored_path,
+        mime_type=message.mime_type or 'application/octet-stream',
+        storage_bucket=message.storage_bucket or '',
+        storage_object_path=message.storage_object_path or '',
+    )
+    return send_file(BytesIO(file_bytes), mimetype=mime_type, download_name=message.original_filename or 'contact-file')
 
 
 @main_bp.route('/bookkeeping/mobile-scan/<token>', methods=['GET', 'POST'])
@@ -1624,7 +1828,79 @@ def api_cbo_profile(slug):
 def api_community_feedback(slug):
     cbo = CBO.query.filter_by(slug=slug).first_or_404()
     _require_feedback_access(cbo)
-    return jsonify(_community_feedback_summary(cbo))
+    return jsonify(_community_feedback_summary(cbo, include_entries=True))
+
+
+@main_bp.route('/api/cbo/<slug>/saved', methods=['POST'])
+@login_required
+def api_toggle_saved_cbo(slug):
+    _require_funder()
+    cbo = CBO.query.filter_by(slug=slug).first_or_404()
+    if _user_owns_cbo(current_user, cbo):
+        abort(403)
+
+    saved_entry = SavedCBO.query.filter_by(user_id=current_user.id, cbo_id=cbo.id).first()
+    if saved_entry is None:
+        db.session.add(SavedCBO(user_id=current_user.id, cbo_id=cbo.id))
+        saved = True
+        message = f'Saved {cbo.name} to Saved CBOs.'
+    else:
+        db.session.delete(saved_entry)
+        saved = False
+        message = f'Removed {cbo.name} from Saved CBOs.'
+
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'saved': saved,
+        'message': message,
+        'saved_count': SavedCBO.query.filter_by(user_id=current_user.id).count(),
+        'saved_page_url': url_for('main.saved_cbos'),
+    })
+
+
+@main_bp.route('/api/cbo/<slug>/ai-followup', methods=['POST'])
+@login_required
+def api_cbo_ai_followup(slug):
+    cbo = CBO.query.filter_by(slug=slug).first_or_404()
+    _require_feedback_access(cbo)
+
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    question = str(payload.get('question') or '').strip()
+    if not question:
+        return jsonify({'ok': False, 'error': 'Ask a question about this CBO first.'}), 400
+
+    marketplace_query = str(payload.get('marketplace_query') or '').strip()
+    match_context = payload.get('match_context') if isinstance(payload.get('match_context'), dict) else {}
+
+    try:
+        cbo_context = _build_cbo_ai_followup_context(cbo)
+        if marketplace_query:
+            cbo_context['marketplace_query'] = marketplace_query
+        if match_context:
+            cbo_context['marketplace_match_context'] = _json_safe_copy(match_context)
+
+        answer_payload = answer_marketplace_cbo_question(
+            question,
+            cbo_context,
+            marketplace_query=marketplace_query,
+        )
+    except Exception:
+        current_app.logger.exception('Failed to build marketplace AI follow-up answer for CBO %s', cbo.id)
+        return jsonify({'ok': False, 'error': 'The AI follow-up answer could not be prepared right now.'}), 500
+
+    return jsonify({
+        'ok': True,
+        'question': question,
+        'answer': answer_payload.get('answer', ''),
+        'evidence': answer_payload.get('evidence', []),
+        'data_gaps': answer_payload.get('data_gaps', []),
+        'suggested_follow_ups': answer_payload.get('suggested_follow_ups', []),
+    })
 
 
 @main_bp.route('/admin/community-feedback')
@@ -1846,6 +2122,7 @@ def community_feedback_cbo_detail(cbo_id):
     _require_sms_activity_access(cbo)
     if _has_developer_access():
         session['developer_sms_cbo_id'] = cbo.id
+    active_contact_thread_id = request.args.get('thread', type=int)
 
     subscribers = CommunitySubscriber.query.filter_by(cbo_id=cbo.id).order_by(
         CommunitySubscriber.updated_at.desc()
@@ -1917,6 +2194,9 @@ def community_feedback_cbo_detail(cbo_id):
         google_forms_enabled=google_forms_enabled(),
         google_form_summary=google_form_summary,
         google_form_upload_titles=expected_upload_question_titles(),
+        contact_threads=_serialize_contact_threads_for_cbo(cbo, current_user=current_user),
+        contact_post_url=url_for('main.send_cbo_contact_message', slug=cbo.slug),
+        active_contact_thread_id=active_contact_thread_id,
     )
 
 
@@ -3352,6 +3632,73 @@ def _refresh_cbo_operational_profile(
     return bookkeeping_context['summary']
 
 
+def _profile_bookkeeping_snapshot_is_stale(cbo: CBO, profile: dict | None, bookkeeping_summary: dict | None) -> bool:
+    profile = profile if isinstance(profile, dict) else {}
+    summary = bookkeeping_summary if isinstance(bookkeeping_summary, dict) else {}
+    workspace = summary.get('workspace') or {}
+
+    has_bookkeeping_signal = bool(
+        summary.get('document_count')
+        or workspace.get('row_count')
+        or summary.get('income_total')
+        or summary.get('expense_total')
+    )
+    if not has_bookkeeping_signal:
+        return False
+
+    financial_cards = [
+        item
+        for item in (profile.get('financial_overview_cards') or [])
+        if isinstance(item, dict) and str(item.get('value') or '').strip()
+    ]
+    operational_cards = [
+        item
+        for item in (profile.get('operational_metric_cards') or [])
+        if isinstance(item, dict) and str(item.get('value') or '').strip()
+    ]
+    if not financial_cards or not operational_cards:
+        return True
+
+    summary_income = float(summary.get('income_total') or 0.0)
+    if summary_income <= 0.0:
+        return False
+
+    stored_financial = profile.get('financial_data') if isinstance(profile.get('financial_data'), dict) else {}
+    stored_total_revenue = _parse_money_value(stored_financial.get('total_revenue')) if stored_financial else 0.0
+    if abs(stored_total_revenue - summary_income) > 0.01:
+        return True
+
+    return False
+
+
+def _resolve_cbo_profile_snapshot(cbo: CBO) -> tuple[dict, dict]:
+    bookkeeping_summary = _bookkeeping_summary(cbo)
+    profile = _safe_json(cbo.ai_profile_json)
+
+    if not _profile_bookkeeping_snapshot_is_stale(cbo, profile, bookkeeping_summary):
+        return profile, bookkeeping_summary
+
+    try:
+        bookkeeping_summary = _refresh_cbo_operational_profile(
+            cbo,
+            seed_profile=profile,
+            bookkeeping_summary=bookkeeping_summary,
+            allow_claude=False,
+        )
+        db.session.commit()
+        profile = _safe_json(cbo.ai_profile_json)
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            'Failed to refresh stale bookkeeping profile snapshot for CBO %s',
+            cbo.id,
+        )
+        profile = _safe_json(cbo.ai_profile_json)
+        bookkeeping_summary = _bookkeeping_summary(cbo)
+
+    return profile, bookkeeping_summary
+
+
 def _require_funder():
     if not _user_has_funder_role(current_user):
         abort(403)
@@ -3363,6 +3710,173 @@ def _user_has_funder_role(user) -> bool:
 
 def _user_has_cbo_role(user) -> bool:
     return bool(getattr(user, 'is_authenticated', False) and getattr(user, 'is_cbo', False))
+
+
+def _viewer_can_save_cbos(user=None) -> bool:
+    target_user = user if user is not None else current_user
+    return bool(getattr(target_user, 'is_authenticated', False) and _user_has_funder_role(target_user))
+
+
+def _saved_cbo_ids_for_user(user) -> set[int]:
+    if not _viewer_can_save_cbos(user):
+        return set()
+    return {
+        entry.cbo_id
+        for entry in SavedCBO.query.filter_by(user_id=user.id).all()
+        if entry.cbo_id is not None
+    }
+
+
+def _is_cbo_saved_by_user(cbo: CBO, user) -> bool:
+    if not _viewer_can_save_cbos(user):
+        return False
+    return SavedCBO.query.filter_by(user_id=user.id, cbo_id=cbo.id).first() is not None
+
+
+def _contact_threads_for_funder_by_cbo(user) -> dict[int, CBOContactThread]:
+    threads = _contact_threads_for_funder(user)
+    return {
+        thread.cbo_id: thread
+        for thread in threads
+        if thread.cbo_id is not None
+    }
+
+
+def _contact_threads_for_funder(user) -> list[CBOContactThread]:
+    if not _user_has_funder_role(user):
+        return []
+    return CBOContactThread.query.filter_by(funder_user_id=user.id).order_by(CBOContactThread.last_message_at.desc()).all()
+
+
+def _serialize_contact_threads_for_funder(user) -> list[dict]:
+    serialized_threads = []
+    for thread in _contact_threads_for_funder(user):
+        cbo = thread.cbo
+        if cbo is None:
+            continue
+        serialized_thread = _serialize_contact_thread(thread, current_user=user)
+        if serialized_thread is None:
+            continue
+        serialized_threads.append({
+            'cbo': cbo,
+            'profile': _safe_json(cbo.ai_profile_json),
+            'classifications': _safe_json_list(cbo.classifications_json),
+            'thread': serialized_thread,
+            'contact_post_url': url_for('main.send_cbo_contact_message', slug=cbo.slug),
+        })
+    return serialized_threads
+
+
+def _contact_thread_for_viewer(cbo: CBO) -> CBOContactThread | None:
+    if not current_user.is_authenticated:
+        return None
+    if _user_owns_cbo(current_user, cbo):
+        return None
+    if not _user_has_funder_role(current_user):
+        return None
+    return CBOContactThread.query.filter_by(cbo_id=cbo.id, funder_user_id=current_user.id).first()
+
+
+def _serialize_contact_threads_for_cbo(cbo: CBO, *, current_user=None) -> list[dict]:
+    viewer = current_user
+    if viewer is None or not (_user_owns_cbo(viewer, cbo) or _has_developer_access()):
+        return []
+    threads = CBOContactThread.query.filter_by(cbo_id=cbo.id).order_by(CBOContactThread.last_message_at.desc()).all()
+    return [
+        serialized
+        for serialized in (_serialize_contact_thread(thread, current_user=viewer) for thread in threads)
+        if serialized
+    ]
+
+
+def _serialize_contact_thread(thread: CBOContactThread | None, *, current_user=None) -> dict | None:
+    if thread is None:
+        return None
+
+    viewer = current_user
+    messages = []
+    for message in thread.messages:
+        attachment_available = bool(
+            message.stored_path and is_stored_file_available(
+                storage_backend=message.storage_backend or 'local',
+                stored_path=message.stored_path,
+                storage_bucket=message.storage_bucket or '',
+                storage_object_path=message.storage_object_path or '',
+            )
+        )
+        sender_name = (
+            thread.cbo.name
+            if message.sender_role == 'cbo'
+            else (thread.funder.display_name if thread.funder else 'Funder')
+        )
+        messages.append({
+            'id': message.id,
+            'body': str(message.message_body or '').strip(),
+            'sender_name': sender_name,
+            'sender_role': message.sender_role,
+            'sender_label': 'CBO' if message.sender_role == 'cbo' else 'Funder',
+            'sent_at': message.created_at,
+            'sent_at_label': message.created_at.strftime('%b %d, %Y at %H:%M UTC') if message.created_at else '',
+            'is_from_viewer': bool(viewer and getattr(viewer, 'id', None) == message.sender_user_id),
+            'has_attachment': attachment_available,
+            'attachment_name': str(message.original_filename or '').strip(),
+            'attachment_url': url_for('main.contact_message_file', message_id=message.id) if attachment_available and has_request_context() else '',
+            'mime_type': str(message.mime_type or '').strip(),
+            'file_size_bytes': int(message.file_size_bytes or 0),
+        })
+
+    last_message = messages[-1] if messages else None
+    funder_name = thread.funder.display_name if thread.funder else 'Funder'
+    funder_email = thread.funder.email if thread.funder else ''
+    return {
+        'id': thread.id,
+        'cbo_id': thread.cbo_id,
+        'funder_user_id': thread.funder_user_id,
+        'funder_name': funder_name,
+        'funder_email': funder_email,
+        'message_count': len(messages),
+        'last_message_at': thread.last_message_at,
+        'last_message_at_label': thread.last_message_at.strftime('%b %d, %Y at %H:%M UTC') if thread.last_message_at else '',
+        'last_message_preview': (last_message or {}).get('body') or ('Shared a file' if (last_message or {}).get('attachment_name') else ''),
+        'messages': messages,
+    }
+
+
+def _require_contact_thread_access(thread: CBOContactThread) -> None:
+    if _has_developer_access():
+        return
+    if _user_owns_cbo(current_user, thread.cbo):
+        return
+    if getattr(current_user, 'id', None) == thread.funder_user_id:
+        return
+    abort(403)
+
+
+def _get_or_create_contact_thread(cbo: CBO, funder_user) -> CBOContactThread:
+    thread = CBOContactThread.query.filter_by(cbo_id=cbo.id, funder_user_id=funder_user.id).first()
+    if thread is not None:
+        return thread
+    thread = CBOContactThread(cbo=cbo, funder=funder_user, last_message_at=datetime.utcnow())
+    db.session.add(thread)
+    db.session.flush()
+    return thread
+
+
+def _contact_redirect_target(cbo: CBO, sender_role: str, thread: CBOContactThread | None) -> str:
+    return_to = str(request.form.get('return_to') or '').strip().lower()
+    if sender_role == 'funder' and return_to == 'messages':
+        return url_for('main.marketplace_messages', thread=thread.id, _anchor='message-thread-detail') if thread else url_for('main.marketplace_messages')
+    if sender_role == 'funder' and return_to == 'saved-cbos':
+        return url_for('main.saved_cbos', _anchor=f'contact-{cbo.slug}')
+    if sender_role == 'cbo' and return_to == 'developer':
+        return (
+            url_for('main.community_feedback_cbo_detail', cbo_id=cbo.id, thread=thread.id, _anchor='funder-messages')
+            if thread else url_for('main.community_feedback_cbo_detail', cbo_id=cbo.id, _anchor='funder-messages')
+        )
+    if sender_role == 'cbo':
+        anchor = f'contact-thread-{thread.id}' if thread else 'contact-cbo'
+        return url_for('main.cbo_profile', slug=cbo.slug, _anchor=anchor)
+    return url_for('main.cbo_profile', slug=cbo.slug, _anchor='contact-funder')
 
 
 def _user_owns_cbo(user, cbo: CBO) -> bool:
@@ -3710,6 +4224,17 @@ def _build_public_token_route_url(endpoint: str, **values) -> str:
     return _build_public_route_url(endpoint, **values)
 
 
+def _build_same_host_route_url(endpoint: str, **values) -> str:
+    return url_for(endpoint, _external=True, **values)
+
+
+def _build_offline_launch_url(local_url: str, public_url: str) -> str:
+    request_host = (request.host or '').split(':', 1)[0].lower()
+    if _is_local_request_host(request_host):
+        return local_url
+    return public_url or local_url
+
+
 def _build_bookkeeping_mobile_scan_url(token: str) -> str:
     return _build_public_token_route_url('main.bookkeeping_mobile_scan', token=token)
 
@@ -3742,10 +4267,14 @@ def _bookkeeping_mobile_scan_context(cbo: CBO, token: str | None = None) -> dict
         'issued_by_user_id': issued_by_user_id,
     })
     preview_url = url_for('main.bookkeeping_mobile_scan', token=signed_token)
+    local_url = _build_same_host_route_url('main.bookkeeping_mobile_scan', token=signed_token)
     public_url = _build_bookkeeping_mobile_scan_url(signed_token)
+    launch_url = _build_offline_launch_url(local_url, public_url)
     if not public_url:
         return {
             'preview_url': preview_url,
+            'local_url': local_url,
+            'launch_url': launch_url,
             'url': '',
             'qr_svg': '',
             'expires_in_minutes': BOOKKEEPING_MOBILE_SCAN_MAX_AGE // 60,
@@ -3754,6 +4283,8 @@ def _bookkeeping_mobile_scan_context(cbo: CBO, token: str | None = None) -> dict
 
     return {
         'preview_url': preview_url,
+        'local_url': local_url,
+        'launch_url': launch_url,
         'url': public_url,
         'qr_svg': _render_qr_code_svg(public_url),
         'expires_in_minutes': BOOKKEEPING_MOBILE_SCAN_MAX_AGE // 60,
@@ -3766,11 +4297,15 @@ def _bookkeeping_offline_context(cbo: CBO, token: str | None = None) -> dict:
         'cbo_id': cbo.id,
     })
     preview_url = url_for('main.bookkeeping_offline_app', token=signed_token)
+    local_url = _build_same_host_route_url('main.bookkeeping_offline_app', token=signed_token)
     public_url = _build_bookkeeping_offline_url(signed_token)
+    launch_url = _build_offline_launch_url(local_url, public_url)
     if not public_url:
         return {
             'token': signed_token,
             'preview_url': preview_url,
+            'local_url': local_url,
+            'launch_url': launch_url,
             'url': '',
             'qr_svg': '',
             'expires_in_minutes': BOOKKEEPING_OFFLINE_MAX_AGE // 60,
@@ -3780,6 +4315,8 @@ def _bookkeeping_offline_context(cbo: CBO, token: str | None = None) -> dict:
     return {
         'token': signed_token,
         'preview_url': preview_url,
+        'local_url': local_url,
+        'launch_url': launch_url,
         'url': public_url,
         'qr_svg': _render_qr_code_svg(public_url),
         'expires_in_minutes': BOOKKEEPING_OFFLINE_MAX_AGE // 60,
@@ -3853,11 +4390,15 @@ def _intake_offline_context(cbo: CBO, token: str | None = None) -> dict:
         'cbo_id': cbo.id,
     })
     preview_url = url_for('main.intake_offline_app', token=signed_token)
+    local_url = _build_same_host_route_url('main.intake_offline_app', token=signed_token)
     public_url = _build_intake_offline_url(signed_token)
+    launch_url = _build_offline_launch_url(local_url, public_url)
     if not public_url:
         return {
             'token': signed_token,
             'preview_url': preview_url,
+            'local_url': local_url,
+            'launch_url': launch_url,
             'url': '',
             'qr_svg': '',
             'expires_in_minutes': INTAKE_OFFLINE_MAX_AGE // 60,
@@ -3867,6 +4408,8 @@ def _intake_offline_context(cbo: CBO, token: str | None = None) -> dict:
     return {
         'token': signed_token,
         'preview_url': preview_url,
+        'local_url': local_url,
+        'launch_url': launch_url,
         'url': public_url,
         'qr_svg': _render_qr_code_svg(public_url),
         'expires_in_minutes': INTAKE_OFFLINE_MAX_AGE // 60,
@@ -4120,7 +4663,47 @@ def _process_bookkeeping_uploads(
     return successes, failures, summary
 
 
-def _community_feedback_summary(cbo: CBO) -> dict:
+def _serialize_feedback_entry(feedback: CommunityFeedback) -> dict:
+    quote = ' '.join((feedback.anecdote or '').split()).strip()
+    return {
+        'id': feedback.id,
+        'quote': quote,
+        'display_quote': quote or 'No written story was shared in this SMS survey response.',
+        'has_quote': bool(quote),
+        'word_count': len(quote.split()) if quote else 0,
+        'rating': feedback.rating,
+        'help_count': feedback.help_count,
+        'cycle_type': feedback.cycle_type,
+        'delivery_channel': feedback.delivery_channel,
+        'submitted_at': feedback.completed_at.strftime('%Y-%m-%d') if feedback.completed_at else '',
+        'submitted_at_label': feedback.completed_at.strftime('%Y-%m-%d %H:%M') if feedback.completed_at else '',
+    }
+
+
+def _select_featured_feedback_entry(entries: list[dict]) -> dict | None:
+    quoted_entries = [entry for entry in entries if entry.get('has_quote')]
+    if not quoted_entries:
+        return None
+    return max(
+        quoted_entries,
+        key=lambda entry: (
+            int(entry.get('word_count') or 0),
+            str(entry.get('submitted_at_label') or ''),
+            int(entry.get('id') or 0),
+        ),
+    )
+
+
+def _order_feedback_entries_for_display(entries: list[dict], featured_entry: dict | None) -> list[dict]:
+    if not entries or not featured_entry:
+        return entries
+    featured_id = featured_entry.get('id')
+    ordered = [entry for entry in entries if entry.get('id') == featured_id]
+    ordered.extend(entry for entry in entries if entry.get('id') != featured_id)
+    return ordered
+
+
+def _community_feedback_summary(cbo: CBO, include_entries: bool = False) -> dict:
     subscribers = CommunitySubscriber.query.filter_by(cbo_id=cbo.id, status='active').all()
     completed_feedback = CommunityFeedback.query.filter_by(cbo_id=cbo.id, status='completed').order_by(
         CommunityFeedback.completed_at.desc()
@@ -4128,28 +4711,22 @@ def _community_feedback_summary(cbo: CBO) -> dict:
 
     ratings = [item.rating for item in completed_feedback if item.rating is not None]
     avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else None
-    recent_quotes = []
-    for item in completed_feedback:
-        if not item.anecdote:
-            continue
-        recent_quotes.append({
-            'quote': item.anecdote,
-            'rating': item.rating,
-            'submitted_at': item.completed_at.strftime('%Y-%m-%d') if item.completed_at else '',
-        })
-        if len(recent_quotes) == 3:
-            break
-
-    return {
+    feedback_entries = [_serialize_feedback_entry(item) for item in completed_feedback]
+    recent_quotes = [entry for entry in feedback_entries if entry.get('has_quote')][:3]
+    summary = {
         'keyword': get_cbo_keyword(cbo),
         'prompt': cbo.community_prompt,
         'subscribers': len(subscribers),
         'responses': len(completed_feedback),
         'avg_rating': avg_rating,
         'recent_quotes': recent_quotes,
+        'featured_quote': _select_featured_feedback_entry(feedback_entries),
         'last_completed_at': completed_feedback[0].completed_at if completed_feedback else None,
         'last_firestore_sync_at': completed_feedback[0].firestore_synced_at if completed_feedback else None,
     }
+    if include_entries:
+        summary['feedback_entries'] = _order_feedback_entries_for_display(feedback_entries, summary['featured_quote'])
+    return summary
 
 
 def _parse_google_timestamp(value: str | None) -> datetime | None:
@@ -5230,6 +5807,7 @@ def _developer_sms_activity_context() -> dict:
     cbo_cards = []
     totals = {
         'cbos': 0,
+        'active_or_recent_cbos': 0,
         'active_users': 0,
         'subscribers': 0,
         'responses': 0,
@@ -5248,8 +5826,7 @@ def _developer_sms_activity_context() -> dict:
 
         has_sms_activity = bool(feedback['subscribers'] or feedback['responses'])
         has_recent_intake = intake['recent_response_count'] > 0
-        if not (active_user_count > 0 or has_sms_activity or has_recent_intake):
-            continue
+        has_visible_activity = active_user_count > 0 or has_sms_activity or has_recent_intake
 
         last_activity_at = max(
             (
@@ -5270,11 +5847,14 @@ def _developer_sms_activity_context() -> dict:
             'active_user_count': active_user_count,
             'has_sms_activity': has_sms_activity,
             'has_recent_intake': has_recent_intake,
+            'has_visible_activity': has_visible_activity,
             'is_featured': is_featured,
             'last_activity_at': last_activity_at,
         })
 
         totals['cbos'] += 1
+        if has_visible_activity:
+            totals['active_or_recent_cbos'] += 1
         totals['active_users'] += active_user_count
         totals['subscribers'] += feedback['subscribers']
         totals['responses'] += feedback['responses']
@@ -5709,6 +6289,260 @@ def _funding_audit_summary(cbo: CBO) -> dict:
         'documents': cards,
         'last_processed_at': last_processed_at,
     }
+
+
+def _json_safe_copy(value):
+    return json.loads(json.dumps(value, default=str))
+
+
+def _serialize_bookkeeping_document_card_for_ai(card: dict) -> dict:
+    document = card.get('document')
+    return {
+        'document': {
+            'id': getattr(document, 'id', None),
+            'original_filename': getattr(document, 'original_filename', ''),
+            'document_type': getattr(document, 'document_type', ''),
+            'document_date': getattr(document, 'document_date', ''),
+            'workspace_period_key': getattr(document, 'workspace_period_key', ''),
+            'currency': getattr(document, 'currency', ''),
+            'summary_text': getattr(document, 'summary_text', ''),
+            'extraction_confidence': getattr(document, 'extraction_confidence', None),
+            'total_income': getattr(document, 'total_income', None),
+            'total_expenses': getattr(document, 'total_expenses', None),
+            'net_amount': getattr(document, 'net_amount', None),
+            'processed_at': getattr(document, 'processed_at', None),
+            'created_at': getattr(document, 'created_at', None),
+        },
+        'entry_count': card.get('entry_count'),
+        'workspace_period_label': card.get('workspace_period_label', ''),
+        'audit_issue_count': card.get('audit_issue_count', 0),
+        'audit_flags': _json_safe_copy(card.get('audit_flags') or []),
+        'organization_name': card.get('organization_name', ''),
+        'document_title': card.get('document_title', ''),
+        'raw_text': card.get('raw_text', ''),
+        'extraction_notes': card.get('extraction_notes', ''),
+        'detected_columns': _json_safe_copy(card.get('detected_columns') or []),
+        'transcribed_rows': _json_safe_copy(card.get('transcribed_rows') or []),
+        'normalized_entries': _json_safe_copy(card.get('normalized_entries') or []),
+        'top_categories': _json_safe_copy(card.get('top_categories') or []),
+        'quality_flags': _json_safe_copy(card.get('quality_flags') or []),
+    }
+
+
+def _serialize_bookkeeping_summary_for_ai(summary: dict) -> dict:
+    workspace = summary.get('workspace') or {}
+    serialized_type_groups = []
+    for group in workspace.get('type_groups') or []:
+        if not isinstance(group, dict):
+            continue
+        group_copy = {key: value for key, value in group.items() if key != 'entries'}
+        serialized_type_groups.append(_json_safe_copy(group_copy))
+
+    return {
+        'summary': {
+            'document_count': summary.get('document_count', 0),
+            'entry_count': summary.get('entry_count', 0),
+            'audit_issue_count': summary.get('audit_issue_count', 0),
+            'income_total': summary.get('income_total', 0),
+            'expense_total': summary.get('expense_total', 0),
+            'net_total': summary.get('net_total', 0),
+            'top_categories': _json_safe_copy(summary.get('top_categories') or []),
+            'last_processed_at': summary.get('last_processed_at'),
+        },
+        'documents': [
+            _serialize_bookkeeping_document_card_for_ai(card)
+            for card in (summary.get('documents') or [])
+            if isinstance(card, dict)
+        ],
+        'workspace': {
+            'columns': _json_safe_copy(workspace.get('columns') or []),
+            'custom_fields': _json_safe_copy(workspace.get('custom_fields') or []),
+            'source_document_types': _json_safe_copy(workspace.get('source_document_types') or []),
+            'primary_document_type': workspace.get('primary_document_type', ''),
+            'generated_at': workspace.get('generated_at'),
+            'worksheets': _json_safe_copy(workspace.get('worksheets') or []),
+            'periods': _json_safe_copy(workspace.get('periods') or []),
+            'type_groups': serialized_type_groups,
+            'default_type_key': workspace.get('default_type_key', ''),
+            'default_period_key': workspace.get('default_period_key', ''),
+            'default_period_label': workspace.get('default_period_label', ''),
+            'row_count': workspace.get('row_count', 0),
+            'entries': _json_safe_copy(workspace.get('entries') or []),
+        },
+    }
+
+
+def _serialize_funding_audit_card_for_ai(card: dict) -> dict:
+    document = card.get('document')
+    return {
+        'document': {
+            'id': getattr(document, 'id', None),
+            'original_filename': getattr(document, 'original_filename', ''),
+            'document_type': getattr(document, 'document_type', ''),
+            'document_date': getattr(document, 'document_date', ''),
+            'declared_funder_name': getattr(document, 'declared_funder_name', ''),
+            'extracted_funder_name': getattr(document, 'extracted_funder_name', ''),
+            'declared_funding_amount': getattr(document, 'declared_funding_amount', None),
+            'declared_working_capital': getattr(document, 'declared_working_capital', None),
+            'verification_status': getattr(document, 'verification_status', ''),
+            'verification_confidence': getattr(document, 'verification_confidence', None),
+            'summary_text': getattr(document, 'summary_text', ''),
+            'processed_at': getattr(document, 'processed_at', None),
+        },
+        'declared': _json_safe_copy(card.get('declared') or {}),
+        'analysis': _json_safe_copy(card.get('analysis') or {}),
+        'audit': _json_safe_copy(card.get('audit') or {}),
+        'issues': _json_safe_copy(card.get('issues') or []),
+        'search_results': _json_safe_copy(card.get('search_results') or []),
+        'search_error': card.get('search_error', ''),
+        'search_configured': bool(card.get('search_configured')),
+        'source_verification': _json_safe_copy(card.get('source_verification') or {}),
+        'operational_audit': _json_safe_copy(card.get('operational_audit') or {}),
+        'legitimacy': _json_safe_copy(card.get('legitimacy') or {}),
+        'quality_flags': _json_safe_copy(card.get('quality_flags') or []),
+        'raw_text': card.get('raw_text', ''),
+    }
+
+
+def _serialize_funding_audit_summary_for_ai(summary: dict) -> dict:
+    return {
+        'summary': {
+            'document_count': summary.get('document_count', 0),
+            'verified_count': summary.get('verified_count', 0),
+            'audit_issue_count': summary.get('audit_issue_count', 0),
+            'declared_funding_total': summary.get('declared_funding_total', 0),
+            'working_capital_total': summary.get('working_capital_total', 0),
+            'observed_charitable_giving_total': summary.get('observed_charitable_giving_total', 0),
+            'bookkeeping_charitable_giving_total': summary.get('bookkeeping_charitable_giving_total', 0),
+            'kobo_charitable_giving_total': summary.get('kobo_charitable_giving_total', 0),
+            'overall_funding_gap': bool(summary.get('overall_funding_gap')),
+            'last_processed_at': summary.get('last_processed_at'),
+        },
+        'documents': [
+            _serialize_funding_audit_card_for_ai(card)
+            for card in (summary.get('documents') or [])
+            if isinstance(card, dict)
+        ],
+    }
+
+
+def _serialize_google_form_upload_for_ai(upload: GoogleFormUpload) -> dict:
+    return {
+        'id': upload.id,
+        'question_id': upload.question_id,
+        'question_title': upload.question_title,
+        'upload_kind': upload.upload_kind,
+        'original_filename': upload.original_filename,
+        'mime_type': upload.mime_type,
+        'sync_status': upload.sync_status,
+        'processing_error': upload.processing_error,
+        'processed_at': upload.processed_at,
+        'created_at': upload.created_at,
+        'linked_bookkeeping_document_id': upload.bookkeeping_document_id,
+    }
+
+
+def _serialize_google_form_response_for_ai(response: GoogleFormResponse) -> dict:
+    return {
+        'id': response.id,
+        'response_id': response.response_id,
+        'response_created_at': response.response_created_at,
+        'response_submitted_at': response.response_submitted_at,
+        'sync_status': response.sync_status,
+        'sync_error': response.sync_error,
+        'provisioning_status': response.provisioning_status,
+        'provisioning_error': response.provisioning_error,
+        'answers': _safe_json_list(response.answers_json),
+        'raw_response': _safe_json(response.raw_response_json),
+        'uploads': [
+            _serialize_google_form_upload_for_ai(upload)
+            for upload in (response.uploads or [])
+        ],
+    }
+
+
+def _serialize_community_feedback_for_ai(entry: CommunityFeedback) -> dict:
+    return {
+        'id': entry.id,
+        'status': entry.status,
+        'cycle_type': entry.cycle_type,
+        'delivery_channel': entry.delivery_channel,
+        'questionnaire_version': entry.questionnaire_version,
+        'rating': entry.rating,
+        'help_count': entry.help_count,
+        'anecdote': entry.anecdote,
+        'raw_transcript': _safe_json_list(entry.raw_transcript),
+        'started_at': entry.started_at,
+        'completed_at': entry.completed_at,
+        'follow_up_due_at': entry.follow_up_due_at,
+        'created_at': entry.created_at,
+        'updated_at': entry.updated_at,
+    }
+
+
+def _build_cbo_ai_followup_context(cbo: CBO) -> dict:
+    profile = _safe_json(cbo.ai_profile_json)
+    bookkeeping_summary = _bookkeeping_summary(cbo)
+    funding_summary = _funding_audit_summary(cbo)
+    google_form_responses = GoogleFormResponse.query.filter_by(cbo_id=cbo.id).order_by(
+        GoogleFormResponse.response_submitted_at.desc(),
+        GoogleFormResponse.created_at.desc(),
+    ).all()
+    community_feedback_entries = CommunityFeedback.query.filter_by(cbo_id=cbo.id).order_by(
+        CommunityFeedback.completed_at.desc(),
+        CommunityFeedback.created_at.desc(),
+    ).all()
+
+    return _json_safe_copy({
+        'cbo_core': {
+            'id': cbo.id,
+            'name': cbo.name,
+            'slug': cbo.slug,
+            'cbo_identifier': cbo.cbo_identifier,
+            'location': cbo.location,
+            'street_address': cbo.street_address,
+            'formatted_address': cbo.formatted_address,
+            'latitude': cbo.latitude,
+            'longitude': cbo.longitude,
+            'county_region': cbo.county_region,
+            'org_type': cbo.org_type,
+            'founded_year': cbo.founded_year,
+            'focus_areas': cbo.focus_areas,
+            'chairperson': cbo.chairperson,
+            'program_director': cbo.program_director,
+            'finance_lead': cbo.finance_lead,
+            'flagship_summary': cbo.flagship_summary,
+            'success_story': cbo.success_story,
+            'join_us_text': cbo.join_us_text,
+            'tool_inventory_total': cbo.tool_inventory_total,
+            'community_prompt': cbo.community_prompt,
+            'data_quality_badge': cbo.data_quality_badge,
+            'social_impact_score': cbo.social_impact_score,
+            'last_synced': cbo.last_synced,
+            'created_at': cbo.created_at,
+            'updated_at': cbo.updated_at,
+        },
+        'ai_profile': profile,
+        'raw_kobo_submissions': _safe_json_list(cbo.raw_kobo_json),
+        'growth_metrics': _safe_json_list(cbo.growth_metrics_json),
+        'impact_data': _safe_json(cbo.impact_json),
+        'classifications': _safe_json_list(cbo.classifications_json),
+        'community_feedback_summary': _community_feedback_summary(cbo),
+        'community_feedback_entries': [
+            _serialize_community_feedback_for_ai(entry)
+            for entry in community_feedback_entries
+        ],
+        'google_form_responses': [
+            _serialize_google_form_response_for_ai(response)
+            for response in google_form_responses
+        ],
+        'google_form_uploads': [
+            _serialize_google_form_upload_for_ai(upload)
+            for upload in GoogleFormUpload.query.filter_by(cbo_id=cbo.id).order_by(GoogleFormUpload.created_at.desc()).all()
+        ],
+        'bookkeeping': _serialize_bookkeeping_summary_for_ai(bookkeeping_summary),
+        'funding_audits': _serialize_funding_audit_summary_for_ai(funding_summary),
+    })
 
 
 def _process_bookkeeping_document(cbo: CBO, filename: str, mime_type: str, source_bytes: bytes, page_images: list[dict], source_channel: str, uploaded_by_user_id: int | None, existing_document: BookkeepingDocument | None = None, upload_batch_id: str | None = None, client_submission_id: str | None = None, related_page_upload: bool = False, include_in_workspace: bool | None = None, document_date_override: str | None = None, workspace_period_key: str | None = None) -> BookkeepingDocument:
@@ -6687,6 +7521,41 @@ def _allowed_bookkeeping_upload(filename: str, mime_type: str) -> bool:
     )
 
 
+def _allowed_contact_upload(filename: str, mime_type: str) -> bool:
+    allowed_extensions = {
+        '.pdf',
+        '.jpg',
+        '.jpeg',
+        '.png',
+        '.webp',
+        '.csv',
+        '.doc',
+        '.docx',
+        '.xls',
+        '.xlsx',
+        '.ppt',
+        '.pptx',
+        '.txt',
+    }
+    extension = os.path.splitext((filename or '').lower())[1]
+    normalized_mime = (mime_type or '').lower()
+    return extension in allowed_extensions and (
+        normalized_mime.startswith('image/')
+        or normalized_mime in {
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'text/plain',
+            'text/csv',
+            'application/octet-stream',
+        }
+    )
+
+
 def _guess_mime_type(filename: str) -> str:
     extension = os.path.splitext(filename.lower())[1]
     return {
@@ -6697,6 +7566,14 @@ def _guess_mime_type(filename: str) -> str:
         '.heic': 'image/heic',
         '.heif': 'image/heif',
         '.pdf': 'application/pdf',
+        '.csv': 'text/csv',
+        '.txt': 'text/plain',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.xls': 'application/vnd.ms-excel',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.ppt': 'application/vnd.ms-powerpoint',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     }.get(extension, 'application/octet-stream')
 
 
@@ -6756,11 +7633,27 @@ def _store_funding_audit_source_file(cbo: CBO, filename: str, source_bytes: byte
     )
 
 
+def _store_contact_attachment(cbo: CBO, filename: str, source_bytes: bytes) -> dict:
+    resolved_filename = filename or 'contact-file'
+    mime_type = _guess_mime_type(resolved_filename)
+    stored = store_supporting_file(
+        cbo_id=cbo.id,
+        filename=resolved_filename,
+        file_bytes=source_bytes,
+        mime_type=mime_type,
+        object_prefix='contact_uploads',
+        local_upload_dir=current_app.config.get('CONTACT_UPLOAD_DIR'),
+    )
+    stored['mime_type'] = mime_type
+    return stored
+
+
 def _build_map_pin(item: dict, ai_search_active: bool) -> dict:
     cbo = item['cbo']
     profile = item['profile'] or {}
     feedback = item['community_feedback'] or {}
     ai_match = item.get('ai_match') or {}
+    can_save = _viewer_can_save_cbos() and not _user_owns_cbo(current_user, cbo)
     impacts = []
     for impact in (profile.get('quantified_impact', []) or [])[:2]:
         impacts.append(' '.join(part for part in [impact.get('metric_value', ''), impact.get('metric_unit', '')] if part).strip())
@@ -6780,6 +7673,10 @@ def _build_map_pin(item: dict, ai_search_active: bool) -> dict:
         'name': profile.get('name', cbo.name),
         'tagline': profile.get('tagline', ''),
         'profile_url': url_for('main.cbo_profile', slug=cbo.slug),
+        'ai_followup_url': url_for('main.api_cbo_ai_followup', slug=cbo.slug),
+        'save_toggle_url': url_for('main.api_toggle_saved_cbo', slug=cbo.slug) if can_save else '',
+        'can_save': can_save,
+        'saved_by_viewer': bool(item.get('saved_by_viewer')),
         'location': profile.get('location', cbo.location) or cbo.formatted_address or cbo.geocode_query or 'Location TBD',
         'formatted_address': cbo.formatted_address or cbo.geocode_query or profile.get('location', cbo.location) or 'Location TBD',
         'latitude': cbo.latitude,
@@ -6810,11 +7707,16 @@ def _truncate_ai_overview_line(text: str, limit: int = 88) -> str:
     return (shortened or cleaned[:limit]).rstrip('.,;:') + '...'
 
 
+def _normalize_ai_overview_fragment(text: str) -> str:
+    return ' '.join((text or '').split()).strip().rstrip(' .;:')
+
+
 def _build_detailed_ai_overview_bullets(item: dict) -> list[str]:
     cbo = item['cbo']
     profile = item.get('profile') or {}
     feedback = item.get('community_feedback') or {}
     ai_match = item.get('ai_match') or {}
+    profile_name = profile.get('name', cbo.name)
 
     focus_areas = [segment.strip() for segment in (profile.get('focus_areas', cbo.focus_areas) or '').split(',') if segment.strip()]
     classifications = item.get('classifications') or []
@@ -6837,50 +7739,57 @@ def _build_detailed_ai_overview_bullets(item: dict) -> list[str]:
     total_revenue = round(item.get('total_revenue') or 0)
     revenue_growth = item.get('revenue_growth') or 0
     ai_score = ai_match.get('score', 0)
-    reasons = [reason.strip() for reason in (ai_match.get('reasons') or []) if str(reason).strip()]
-
-    if ai_match:
-        if ai_score >= 75:
-            match_label = 'This looks like a strong overall match for the search.'
-        elif ai_score >= 45:
-            match_label = 'This looks reasonably aligned, although there are still some gaps against the full request.'
-        else:
-            match_label = 'This appears to be only a partial fit for the search based on the available signals.'
-    else:
-        match_label = 'This organisation appears in the results based on its available operational profile.'
+    tagline = _normalize_ai_overview_fragment(profile.get('tagline', ''))
+    reasons = []
+    for reason in ai_match.get('reasons') or []:
+        normalized_reason = _normalize_ai_overview_fragment(reason)
+        if normalized_reason:
+            reasons.append(normalized_reason)
 
     focus_text = ', '.join(focus_areas[:3]) if focus_areas else ', '.join(classifications[:3])
-    quote = recent_quotes[0].get('quote', '').strip() if recent_quotes else ''
-
-    bullets = [match_label]
+    quote = _normalize_ai_overview_fragment(recent_quotes[0].get('quote', '')) if recent_quotes else ''
 
     if reasons:
-        bullets.append(f"It stands out because {reasons[0][0].lower() + reasons[0][1:] if len(reasons[0]) > 1 else reasons[0].lower()}.")
+        lead_label = 'Closest fit' if ai_score >= 75 else 'Search match' if ai_score >= 45 else 'Possible fit'
+        lead_bullet = f"{lead_label}: {reasons[0]}"
     elif focus_text:
-        bullets.append(f"Its work appears to center on {focus_text}, which gives it a clearer connection to the search.")
+        lead_bullet = f"What they do: {profile_name} focuses on {focus_text}"
+    elif tagline:
+        lead_bullet = f"CBO snapshot: {tagline}"
     else:
-        bullets.append('There is some baseline mission and operating data available, but the fit is supported by limited descriptive detail.')
+        lead_bullet = f"Profile signal: {profile_name} surfaced from the operating details available in the marketplace"
+
+    if tagline:
+        snapshot_bullet = f"CBO snapshot: {tagline}"
+    elif focus_text:
+        snapshot_bullet = f"What they do: {profile_name} focuses on {focus_text}"
+    elif classifications:
+        snapshot_bullet = f"Sector footprint: {profile_name} is tagged under {', '.join(classifications[:3])}"
+    else:
+        snapshot_bullet = ''
+
+    bullets = [lead_bullet, snapshot_bullet]
 
     if impacts:
-        bullets.append(f"The strongest operating evidence in the profile points to {impacts[0]}.")
+        bullets.append(f"Operating proof: {impacts[0]}")
     elif total_revenue:
-        bullets.append(f"The profile shows about KSh {total_revenue:,.0f} in revenue, which provides at least some operational evidence behind the match.")
+        bullets.append(f"Operating proof: The profile reports about KSh {total_revenue:,.0f} in revenue")
     elif revenue_growth:
-        bullets.append(f"Recent reporting suggests revenue changed by about {revenue_growth:.1f}%, although broader operating evidence is still limited.")
+        direction = 'up' if revenue_growth >= 0 else 'down'
+        bullets.append(f"Recent trend: Revenue is {direction} {abs(revenue_growth):.1f}% quarter over quarter")
     elif focus_text:
-        bullets.append(f"The available profile mainly emphasizes {focus_text}, with lighter hard evidence elsewhere.")
+        bullets.append(f"Operating signal: The profile ties the work most clearly to {focus_text}")
 
-    if avg_rating is not None:
-        bullets.append(f"Community feedback is a useful signal here, with an average rating of {avg_rating}/10 from {response_count} response{'s' if response_count != 1 else ''}.")
+    if len(reasons) > 1:
+        bullets.append(f"Why else it fits: {reasons[1]}")
+    elif avg_rating is not None:
+        bullets.append(
+            f"Community signal: Rated {avg_rating}/10 from {response_count} response{'s' if response_count != 1 else ''}"
+        )
+    elif quote:
+        bullets.append(f"Community voice: \"{quote}\"")
     elif response_count:
-        bullets.append(f"There are {response_count} community response{'s' if response_count != 1 else ''} on record, although they do not yet translate into a clear average rating.")
-    else:
-        bullets.append('Community feedback is still thin, so this match depends more on profile and operating data than on direct public sentiment.')
-
-    if quote:
-        bullets.append(f"One recent comment captures the on-the-ground perception: \"{quote}\"")
-    elif len(reasons) > 1:
-        bullets.append(f"A secondary reason this result surfaced is that {reasons[1][0].lower() + reasons[1][1:] if len(reasons[1]) > 1 else reasons[1].lower()}.")
+        bullets.append(f"Community signal: {response_count} community response{'s' if response_count != 1 else ''} are on file")
 
     cleaned_bullets = []
     for bullet in bullets:
@@ -6901,7 +7810,13 @@ def _build_detailed_ai_overview_bullets(item: dict) -> list[str]:
 
 
 def _flatten_ai_overview_bullets(bullets: list[str]) -> str:
-    return ' '.join((bullets or [])[:3])
+    preview_fragments = []
+    for bullet in (bullets or [])[:2]:
+        fragment = bullet.split(': ', 1)[1] if ': ' in bullet else bullet
+        cleaned = ' '.join(fragment.split()).strip()
+        if cleaned:
+            preview_fragments.append(cleaned)
+    return ' '.join(preview_fragments)
 
 
 def _transcript_messages(feedback: CommunityFeedback) -> list:

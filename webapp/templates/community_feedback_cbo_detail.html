@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}SMS Activity — {{ cbo.name }}{% endblock %}
+{% from "_contact_macros.html" import render_cbo_contact_inbox %}
 
 {% macro bookkeeping_column_class(column_name) -%}
 {%- set column = (column_name or '')|lower -%}
@@ -415,11 +416,11 @@ bookkeeping-table__col--text
           <p class="sms-qr-card__note">Scans captured here stay attached to {{ cbo.name }} so the uploaded documents and resulting digitized rows remain inside this CBO record.</p>
         {% endif %}
         <div class="sms-qr-actions">
-          <a href="{{ mobile_scan.url or mobile_scan.preview_url }}" class="btn btn-outline btn-xs" target="_blank" rel="noopener"><i class="fas fa-mobile-screen-button"></i> Open Scanner</a>
+          <a href="{{ mobile_scan.launch_url }}" class="btn btn-outline btn-xs" target="_blank" rel="noopener"><i class="fas fa-mobile-screen-button"></i> Open Scanner</a>
           {% if mobile_scan.url %}
             <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ mobile_scan.url }}"><i class="fas fa-copy"></i> Copy Link</button>
           {% else %}
-            <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ mobile_scan.preview_url }}"><i class="fas fa-copy"></i> Copy Preview</button>
+            <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ mobile_scan.local_url }}"><i class="fas fa-copy"></i> Copy Preview</button>
           {% endif %}
         </div>
       </div>
@@ -439,11 +440,11 @@ bookkeeping-table__col--text
           <p class="sms-qr-card__note">Open the offline bookkeeping workspace for {{ cbo.name }} to capture ledger entries even when connectivity is unreliable.</p>
         {% endif %}
         <div class="sms-qr-actions">
-          <a href="{{ bookkeeping_offline.url or bookkeeping_offline.preview_url }}" class="btn btn-outline btn-xs" target="_blank" rel="noopener"><i class="fas fa-wifi"></i> Open App</a>
+          <a href="{{ bookkeeping_offline.launch_url }}" class="btn btn-outline btn-xs" target="_blank" rel="noopener"><i class="fas fa-wifi"></i> Open App</a>
           {% if bookkeeping_offline.url %}
             <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ bookkeeping_offline.url }}"><i class="fas fa-copy"></i> Copy Link</button>
           {% else %}
-            <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ bookkeeping_offline.preview_url }}"><i class="fas fa-copy"></i> Copy Preview</button>
+            <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ bookkeeping_offline.local_url }}"><i class="fas fa-copy"></i> Copy Preview</button>
           {% endif %}
         </div>
       </div>
@@ -468,10 +469,15 @@ bookkeeping-table__col--text
 
   <div class="activity-tabs" role="tablist" aria-label="Activity views">
     <button type="button" class="activity-tab is-active" data-activity-tab="sms-feedback">SMS Feedback</button>
+    <button type="button" class="activity-tab" data-activity-tab="funder-messages">Funder Messages</button>
     <button type="button" class="activity-tab" data-activity-tab="google-form-responses">Intake Responses</button>
     <button type="button" class="activity-tab" data-activity-tab="bookkeeping-activity">Bookkeeping Activity</button>
     <button type="button" class="activity-tab" data-activity-tab="digitized-documents">Digitized Documents</button>
     <button type="button" class="activity-tab" data-activity-tab="cbo-profile">CBO Profile</button>
+  </div>
+
+  <div class="activity-panel" data-activity-panel="funder-messages" id="funder-messages" hidden>
+    {{ render_cbo_contact_inbox(cbo, contact_post_url, contact_threads, anchor_id='developer-contact-cbo', return_to='developer', active_thread_id=active_contact_thread_id) }}
   </div>
 
   <div class="activity-panel" data-activity-panel="sms-feedback">
@@ -651,8 +657,8 @@ bookkeeping-table__col--text
                 <i class="fas fa-plus"></i> Create Google Form
               </button>
             {% endif %}
-            {% if intake_offline.preview_url %}
-              <a href="{{ intake_offline.preview_url }}" class="btn btn-outline" target="_blank" rel="noopener">
+            {% if intake_offline.local_url %}
+              <a href="{{ intake_offline.launch_url }}" class="btn btn-outline" target="_blank" rel="noopener">
                 <i class="fas fa-mobile-screen-button"></i> Preview Intake App
               </a>
             {% endif %}

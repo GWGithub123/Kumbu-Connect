@@ -157,6 +157,78 @@ class CBO(db.Model):
         self.raw_kobo_json = '[]'
 
 
+class SavedCBO(db.Model):
+    """A CBO saved by a funder for later review."""
+    __tablename__ = 'saved_cbos'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'cbo_id', name='uq_saved_cbo_user_cbo'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    cbo_id = db.Column(db.Integer, db.ForeignKey('cbos.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship('User', backref=db.backref('saved_cbo_entries', lazy=True, cascade='all, delete-orphan'))
+    cbo = db.relationship('CBO', backref=db.backref('saved_by_entries', lazy=True, cascade='all, delete-orphan'))
+
+
+class CBOContactThread(db.Model):
+    """A funder-to-CBO conversation thread."""
+    __tablename__ = 'cbo_contact_threads'
+    __table_args__ = (
+        db.UniqueConstraint('cbo_id', 'funder_user_id', name='uq_cbo_contact_thread_cbo_funder'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    cbo_id = db.Column(db.Integer, db.ForeignKey('cbos.id'), nullable=False)
+    funder_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    last_message_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    cbo = db.relationship(
+        'CBO',
+        backref=db.backref('contact_threads', lazy=True, order_by='desc(CBOContactThread.last_message_at)'),
+    )
+    funder = db.relationship(
+        'User',
+        backref=db.backref('cbo_contact_threads', lazy=True, order_by='desc(CBOContactThread.last_message_at)'),
+        foreign_keys=[funder_user_id],
+    )
+
+
+class CBOContactMessage(db.Model):
+    """A single message or file shared inside a funder-to-CBO thread."""
+    __tablename__ = 'cbo_contact_messages'
+
+    id = db.Column(db.Integer, primary_key=True)
+    thread_id = db.Column(db.Integer, db.ForeignKey('cbo_contact_threads.id'), nullable=False)
+    sender_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    sender_role = db.Column(db.String(20), nullable=False, default='funder')
+    message_body = db.Column(db.Text, default='')
+    original_filename = db.Column(db.String(255), default='')
+    mime_type = db.Column(db.String(100), default='application/octet-stream')
+    storage_backend = db.Column(db.String(20), nullable=False, default='local')
+    storage_bucket = db.Column(db.String(255), default='')
+    storage_object_path = db.Column(db.String(500), default='')
+    stored_path = db.Column(db.String(500), default='')
+    file_size_bytes = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    read_at = db.Column(db.DateTime, nullable=True)
+
+    thread = db.relationship(
+        'CBOContactThread',
+        backref=db.backref('messages', lazy=True, order_by='CBOContactMessage.created_at'),
+        foreign_keys=[thread_id],
+    )
+    sender = db.relationship(
+        'User',
+        backref=db.backref('cbo_contact_messages', lazy=True, order_by='desc(CBOContactMessage.created_at)'),
+        foreign_keys=[sender_user_id],
+    )
+
+
 class BookkeepingDocument(db.Model):
     """An uploaded bookkeeping image plus extracted structured accounting data."""
     __tablename__ = 'bookkeeping_documents'

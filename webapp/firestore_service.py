@@ -24,86 +24,100 @@ _BOOKKEEPING_FIRESTORE_ENTRIES_LIMIT = 20
 
 
 def sync_subscriber_to_firestore(subscriber) -> bool:
-    client = _get_firestore_client()
-    if not client:
-        return False
+    try:
+        client = _get_firestore_client()
+        if not client:
+            return False
 
-    cbo_ref = _get_cbo_ref(client, subscriber.cbo)
-    _write_cbo_metadata(cbo_ref, subscriber.cbo)
-    subscriber_ref = cbo_ref.collection('community_subscribers').document(str(subscriber.id))
-    subscriber_ref.set({
-        'subscriber_id': subscriber.id,
-        'cbo_id': subscriber.cbo_id,
-        'cbo_name': subscriber.cbo.name,
-        'cbo_keyword': _get_cbo_firestore_key(subscriber.cbo),
-        'cbo_slug': subscriber.cbo.slug,
-        'phone_number': subscriber.phone_number,
-        'status': subscriber.status,
-        'signup_keyword': subscriber.signup_keyword,
-        'signup_source': subscriber.signup_source,
-        'conversation_state': subscriber.conversation_state,
-        'added_at': _iso(subscriber.created_at),
-        'consent_received_at': _iso(subscriber.consent_received_at),
-        'last_response_at': _iso(subscriber.last_response_at),
-        'last_checkin_sent_at': _iso(subscriber.last_checkin_sent_at),
-        'created_at': _iso(subscriber.created_at),
-        'updated_at': _iso(subscriber.updated_at),
-    }, merge=True)
-    return True
+        cbo_ref = _get_cbo_ref(client, subscriber.cbo)
+        _write_cbo_metadata(cbo_ref, subscriber.cbo)
+        subscriber_ref = cbo_ref.collection('community_subscribers').document(str(subscriber.id))
+        subscriber_ref.set({
+            'subscriber_id': subscriber.id,
+            'cbo_id': subscriber.cbo_id,
+            'cbo_name': subscriber.cbo.name,
+            'cbo_keyword': _get_cbo_firestore_key(subscriber.cbo),
+            'cbo_slug': subscriber.cbo.slug,
+            'phone_number': subscriber.phone_number,
+            'status': subscriber.status,
+            'signup_keyword': subscriber.signup_keyword,
+            'signup_source': subscriber.signup_source,
+            'conversation_state': subscriber.conversation_state,
+            'added_at': _iso(subscriber.created_at),
+            'consent_received_at': _iso(subscriber.consent_received_at),
+            'last_response_at': _iso(subscriber.last_response_at),
+            'last_checkin_sent_at': _iso(subscriber.last_checkin_sent_at),
+            'created_at': _iso(subscriber.created_at),
+            'updated_at': _iso(subscriber.updated_at),
+        }, merge=True)
+        return True
+    except Exception:
+        current_app.logger.exception(
+            'Failed to mirror community subscriber %s to Firestore',
+            subscriber.id,
+        )
+        return False
 
 
 def sync_feedback_to_firestore(subscriber, feedback) -> bool:
-    client = _get_firestore_client()
-    if not client:
-        return False
-
     try:
-        transcript = json.loads(feedback.raw_transcript or '[]')
-    except (json.JSONDecodeError, TypeError):
-        transcript = []
+        client = _get_firestore_client()
+        if not client:
+            return False
 
-    cbo_ref = _get_cbo_ref(client, subscriber.cbo)
-    _write_cbo_metadata(cbo_ref, subscriber.cbo)
-    feedback_ref = cbo_ref.collection('community_feedback').document(str(feedback.id))
-    feedback_ref.set({
-        'feedback_id': feedback.id,
-        'subscriber_id': feedback.subscriber_id,
-        'cbo_id': feedback.cbo_id,
-        'cbo_name': subscriber.cbo.name,
-        'cbo_keyword': _get_cbo_firestore_key(subscriber.cbo),
-        'phone_number': subscriber.phone_number,
-        'cycle_type': feedback.cycle_type,
-        'delivery_channel': feedback.delivery_channel,
-        'questionnaire_version': feedback.questionnaire_version,
-        'status': feedback.status,
-        'rating': feedback.rating,
-        'help_count': feedback.help_count,
-        'anecdote': feedback.anecdote,
-        'raw_transcript': transcript,
-        'added_at': _iso(feedback.created_at),
-        'submitted_at': _iso(feedback.completed_at or feedback.created_at),
-        'started_at': _iso(feedback.started_at),
-        'completed_at': _iso(feedback.completed_at),
-        'follow_up_due_at': _iso(feedback.follow_up_due_at),
-        'created_at': _iso(feedback.created_at),
-        'updated_at': _iso(feedback.updated_at),
-    }, merge=True)
-    feedback.firestore_synced_at = datetime.utcnow()
-    from .models import db
-    db.session.commit()
-    return True
+        try:
+            transcript = json.loads(feedback.raw_transcript or '[]')
+        except (json.JSONDecodeError, TypeError):
+            transcript = []
+
+        cbo_ref = _get_cbo_ref(client, subscriber.cbo)
+        _write_cbo_metadata(cbo_ref, subscriber.cbo)
+        feedback_ref = cbo_ref.collection('community_feedback').document(str(feedback.id))
+        feedback_ref.set({
+            'feedback_id': feedback.id,
+            'subscriber_id': feedback.subscriber_id,
+            'cbo_id': feedback.cbo_id,
+            'cbo_name': subscriber.cbo.name,
+            'cbo_keyword': _get_cbo_firestore_key(subscriber.cbo),
+            'phone_number': subscriber.phone_number,
+            'cycle_type': feedback.cycle_type,
+            'delivery_channel': feedback.delivery_channel,
+            'questionnaire_version': feedback.questionnaire_version,
+            'status': feedback.status,
+            'rating': feedback.rating,
+            'help_count': feedback.help_count,
+            'anecdote': feedback.anecdote,
+            'raw_transcript': transcript,
+            'added_at': _iso(feedback.created_at),
+            'submitted_at': _iso(feedback.completed_at or feedback.created_at),
+            'started_at': _iso(feedback.started_at),
+            'completed_at': _iso(feedback.completed_at),
+            'follow_up_due_at': _iso(feedback.follow_up_due_at),
+            'created_at': _iso(feedback.created_at),
+            'updated_at': _iso(feedback.updated_at),
+        }, merge=True)
+        feedback.firestore_synced_at = datetime.utcnow()
+        from .models import db
+        db.session.commit()
+        return True
+    except Exception:
+        current_app.logger.exception(
+            'Failed to mirror community feedback %s to Firestore',
+            feedback.id,
+        )
+        return False
 
 
 def sync_bookkeeping_document_to_firestore(bookkeeping_document) -> bool:
-    client = _get_firestore_client()
-    if not client:
-        return False
-
-    extracted = _safe_json(bookkeeping_document.extracted_data_json)
-    cbo_ref = _get_cbo_ref(client, bookkeeping_document.cbo)
-    _write_cbo_metadata(cbo_ref, bookkeeping_document.cbo)
-    document_ref = cbo_ref.collection('bookkeeping_documents').document(str(bookkeeping_document.id))
     try:
+        client = _get_firestore_client()
+        if not client:
+            return False
+
+        extracted = _safe_json(bookkeeping_document.extracted_data_json)
+        cbo_ref = _get_cbo_ref(client, bookkeeping_document.cbo)
+        _write_cbo_metadata(cbo_ref, bookkeeping_document.cbo)
+        document_ref = cbo_ref.collection('bookkeeping_documents').document(str(bookkeeping_document.id))
         document_ref.set({
             'bookkeeping_document_id': bookkeeping_document.id,
             'cbo_id': bookkeeping_document.cbo_id,
@@ -148,27 +162,42 @@ def sync_bookkeeping_document_to_firestore(bookkeeping_document) -> bool:
 
 
 def sync_bookkeeping_summary_to_firestore(cbo, summary: dict) -> bool:
-    client = _get_firestore_client()
-    if not client:
-        return False
+    try:
+        client = _get_firestore_client()
+        if not client:
+            return False
 
-    cbo_ref = _get_cbo_ref(client, cbo)
-    _write_cbo_metadata(cbo_ref, cbo)
-    cbo_ref.set({
-        'bookkeeping_summary': summary,
-        'bookkeeping_updated_at': datetime.utcnow().isoformat(),
-    }, merge=True)
-    return True
+        cbo_ref = _get_cbo_ref(client, cbo)
+        _write_cbo_metadata(cbo_ref, cbo)
+        cbo_ref.set({
+            'bookkeeping_summary': summary,
+            'bookkeeping_updated_at': datetime.utcnow().isoformat(),
+        }, merge=True)
+        return True
+    except Exception:
+        current_app.logger.exception(
+            'Failed to mirror bookkeeping summary for CBO %s to Firestore',
+            cbo.id,
+        )
+        return False
 
 
 def delete_bookkeeping_document_from_firestore(cbo, document_id: int) -> bool:
-    client = _get_firestore_client()
-    if not client:
-        return False
+    try:
+        client = _get_firestore_client()
+        if not client:
+            return False
 
-    for document_ref in _get_bookkeeping_document_refs(client, cbo, document_id):
-        document_ref.delete()
-    return True
+        for document_ref in _get_bookkeeping_document_refs(client, cbo, document_id):
+            document_ref.delete()
+        return True
+    except Exception:
+        current_app.logger.exception(
+            'Failed to delete bookkeeping document %s for CBO %s from Firestore',
+            document_id,
+            cbo.id,
+        )
+        return False
 
 
 def get_feedback_document_path(cbo) -> str:

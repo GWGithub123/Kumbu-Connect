@@ -199,7 +199,7 @@ bookkeeping-table__col--text
               </div>
               {% endif %}
               <div class="bk-live-access-card__actions">
-                <a href="{{ bookkeeping_offline.url or bookkeeping_offline.preview_url }}" class="btn btn-outline btn-xs"{% if bookkeeping_offline and bookkeeping_offline.url %} target="_blank" rel="noopener"{% endif %}><i class="fas fa-wifi"></i> Open App</a>
+                <a href="{{ bookkeeping_offline.launch_url }}" class="btn btn-outline btn-xs"{% if bookkeeping_offline and bookkeeping_offline.url %} target="_blank" rel="noopener"{% endif %}><i class="fas fa-wifi"></i> Open App</a>
                 {% if bookkeeping_offline and bookkeeping_offline.url %}
                 <button type="button" class="btn btn-outline btn-xs" data-copy-text="{{ bookkeeping_offline.url }}"><i class="fas fa-copy"></i> Copy Link</button>
                 {% endif %}

@@ -1,0 +1,183 @@
+{% macro render_contact_messages(messages, compact=false, chat=false) %}
+  {% set visible_messages = messages[-4:] if compact else messages %}
+  <div class="contact-thread__messages{% if chat %} contact-thread__messages--chat{% endif %}">
+    {% for message in visible_messages %}
+      <article class="contact-message{% if message.is_from_viewer %} is-from-viewer{% endif %}">
+        <div class="contact-message__meta">
+          <strong>{{ 'You' if message.is_from_viewer else message.sender_name }}</strong>
+          <span>{{ message.sent_at_label }}</span>
+        </div>
+        {% if message.body %}
+          <p class="contact-message__body">{{ message.body }}</p>
+        {% endif %}
+        {% if message.has_attachment %}
+          <a href="{{ message.attachment_url }}" class="contact-message__file" target="_blank" rel="noopener">
+            <i class="fas fa-paperclip"></i> {{ message.attachment_name }}
+          </a>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </div>
+{% endmacro %}
+
+
+{% macro render_funder_contact_form(cbo, post_url, return_to='profile', compact=false, message_label='Message') %}
+  <form method="POST" action="{{ post_url }}" enctype="multipart/form-data" class="contact-compose-form">
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+    <label class="contact-compose-form__field">
+      <span>{{ message_label }}</span>
+      <textarea name="message_body" rows="{{ 3 if compact else 4 }}" placeholder="Introduce yourself, ask a question, or share next steps."></textarea>
+    </label>
+    <label class="contact-compose-form__field">
+      <span>Attach a file</span>
+      <input type="file" name="attachment" accept=".pdf,.jpg,.jpeg,.png,.webp,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt">
+    </label>
+    <div class="contact-compose-form__actions">
+      <button type="submit" class="btn btn-primary">Send to {{ cbo.name }}</button>
+      <span class="contact-compose-form__hint">PDFs, docs, spreadsheets, images, and text files are supported.</span>
+    </div>
+  </form>
+{% endmacro %}
+
+
+{% macro render_funder_contact_content(cbo, post_url, thread, return_to='profile', compact=false) %}
+  {{ render_funder_contact_form(cbo, post_url, return_to=return_to, compact=compact) }}
+
+  {% if thread and thread.messages %}
+    <div class="contact-thread">
+      <div class="contact-thread__header">
+        <strong>Conversation</strong>
+        <span>Last updated {{ thread.last_message_at_label }}</span>
+      </div>
+      {{ render_contact_messages(thread.messages, compact=compact) }}
+    </div>
+  {% else %}
+    <p class="contact-thread__empty">No conversation yet. Your message and any attachment will appear here after you send them.</p>
+  {% endif %}
+{% endmacro %}
+
+
+{% macro render_funder_contact_panel(cbo, post_url, thread, return_to='profile', compact=false, anchor_id='contact-funder') %}
+  {% if post_url %}
+  <section class="contact-panel contact-panel--funder{% if compact %} contact-panel--compact{% endif %}" id="{{ anchor_id }}">
+    <details class="contact-card"{% if thread and thread.message_count %} open{% endif %}>
+      <summary class="contact-card__summary">
+        <span class="contact-card__summary-copy">
+          <span class="contact-card__summary-title">Contact CBO</span>
+          <span class="contact-card__summary-subtitle">Send a message and/or share a file like a grant application PDF.</span>
+        </span>
+        <span class="contact-card__summary-count">
+          {% if thread and thread.message_count %}
+            {{ thread.message_count }} message{{ 's' if thread.message_count != 1 else '' }}
+          {% else %}
+            Open
+          {% endif %}
+        </span>
+      </summary>
+      <div class="contact-card__body">
+        {{ render_funder_contact_content(cbo, post_url, thread, return_to=return_to, compact=compact) }}
+      </div>
+    </details>
+  </section>
+  {% endif %}
+{% endmacro %}
+
+
+{% macro render_funder_contact_modal(cbo, post_url, thread, return_to='profile', trigger_id='contact-funder', modal_id='contact-funder-modal', trigger_variant='header') %}
+  {% if post_url %}
+  <div class="profile-header__contact-group" id="{{ trigger_id }}">
+    <button
+      type="button"
+      class="contact-cbo-button{% if trigger_variant == 'card' %} contact-cbo-button--card{% endif %}"
+      data-contact-modal-open="{{ modal_id }}"
+      aria-haspopup="dialog"
+      aria-controls="{{ modal_id }}"
+      aria-expanded="false"
+    >
+      <i class="fas fa-paper-plane"></i>
+      <span>Contact CBO</span>
+      {% if thread and thread.message_count %}
+        <span class="contact-cbo-button__count">{{ thread.message_count }}</span>
+      {% endif %}
+    </button>
+  </div>
+
+  <div class="contact-modal" id="{{ modal_id }}" hidden data-contact-modal-root>
+    <div class="contact-modal__backdrop" data-contact-modal-close></div>
+    <div class="contact-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="{{ modal_id }}-title">
+      <button type="button" class="contact-modal__close" aria-label="Close contact dialog" data-contact-modal-close>
+        <i class="fas fa-times"></i>
+      </button>
+      <div class="contact-modal__header">
+        <p class="contact-modal__eyebrow">Contact CBO</p>
+        <h2 id="{{ modal_id }}-title">{{ cbo.name }}</h2>
+        <p>Send a message and/or share a file like a grant application PDF.</p>
+      </div>
+      <div class="contact-modal__body">
+        {% if thread and thread.message_count %}
+          <div class="contact-modal__meta">
+            <span>{{ thread.message_count }} message{{ 's' if thread.message_count != 1 else '' }}</span>
+            <span>Last updated {{ thread.last_message_at_label }}</span>
+          </div>
+        {% endif %}
+        {{ render_funder_contact_content(cbo, post_url, thread, return_to=return_to) }}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+{% endmacro %}
+
+
+{% macro render_cbo_contact_inbox(cbo, post_url, threads, anchor_id='contact-cbo', return_to='cbo', active_thread_id=None) %}
+  <section class="profile-section contact-panel contact-panel--cbo" id="{{ anchor_id }}">
+    <div class="contact-panel__section-heading">
+      <p class="contact-panel__eyebrow">Funder Inbox</p>
+      <h2>Contact Requests</h2>
+      <p>Review incoming funder messages, download files, and reply from the CBO profile.</p>
+    </div>
+
+    {% if threads %}
+      <div class="contact-inbox">
+        {% for thread in threads %}
+          <details class="contact-thread-card" id="contact-thread-{{ thread.id }}"{% if active_thread_id == thread.id or (active_thread_id is none and loop.first) %} open{% endif %}>
+            <summary class="contact-thread-card__summary">
+              <span class="contact-thread-card__identity">
+                <strong>{{ thread.funder_name }}</strong>
+                {% if thread.funder_email %}
+                  <small>{{ thread.funder_email }}</small>
+                {% endif %}
+              </span>
+              <span class="contact-thread-card__meta">{{ thread.message_count }} message{{ 's' if thread.message_count != 1 else '' }} · {{ thread.last_message_at_label }}</span>
+            </summary>
+            <div class="contact-thread-card__body">
+              {{ render_contact_messages(thread.messages) }}
+
+              {% if post_url %}
+                <form method="POST" action="{{ post_url }}" enctype="multipart/form-data" class="contact-compose-form contact-compose-form--reply">
+                  <input type="hidden" name="thread_id" value="{{ thread.id }}">
+                  <input type="hidden" name="return_to" value="{{ return_to }}">
+                  <label class="contact-compose-form__field">
+                    <span>Reply</span>
+                    <textarea name="message_body" rows="4" placeholder="Share an update, answer a question, or send next steps."></textarea>
+                  </label>
+                  <label class="contact-compose-form__field">
+                    <span>Attach a file</span>
+                    <input type="file" name="attachment" accept=".pdf,.jpg,.jpeg,.png,.webp,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt">
+                  </label>
+                  <div class="contact-compose-form__actions">
+                    <button type="submit" class="btn btn-primary">Reply to {{ thread.funder_name }}</button>
+                    <span class="contact-compose-form__hint">Use the same thread for files and follow-up replies.</span>
+                  </div>
+                </form>
+              {% endif %}
+            </div>
+          </details>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="contact-thread__empty contact-thread__empty--boxed">
+        No funder messages yet. When a funder contacts this CBO, the full conversation will appear here.
+      </div>
+    {% endif %}
+  </section>
+{% endmacro %}

@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Messages — Kumbu Connect{% endblock %}
+{% from "_contact_macros.html" import render_contact_messages, render_funder_contact_form %}
+
+{% block content %}
+<div class="container saved-cbos-page funder-messages-page">
+  <section class="saved-cbos-hero">
+    <div>
+      <p class="saved-cbos-hero__eyebrow">Funder inbox</p>
+      <h1>Messages</h1>
+      <p>See every open CBO conversation in one place, continue follow-ups, and review shared files without bouncing between profile pages.</p>
+      <p class="saved-cbos-hero__count">{{ message_threads|length }} open conversation{{ 's' if message_threads|length != 1 else '' }}</p>
+    </div>
+    <div class="funder-messages-hero__actions">
+      <a href="{{ url_for('main.marketplace') }}" class="btn btn-outline">Back to Marketplace</a>
+      <a href="{{ url_for('main.saved_cbos') }}" class="btn btn-primary">Saved CBOs</a>
+    </div>
+  </section>
+
+  <section class="saved-cbo-empty" {% if message_threads %}hidden{% endif %}>
+    <h2>No conversations yet</h2>
+    <p>Start a thread from any CBO profile or a saved CBO card. Once you send the first message, the conversation will appear here.</p>
+    <a href="{{ url_for('main.marketplace') }}" class="btn btn-primary">Browse Marketplace</a>
+  </section>
+
+  <section class="sms-activity-hub-grid funder-messages-hub-grid" {% if not message_threads %}hidden{% endif %}>
+    {% for item in message_threads %}
+      {% set cbo = item.cbo %}
+      {% set profile = item.profile or {} %}
+      {% set thread = item.thread %}
+      {% set is_active = active_message_thread and active_message_thread.thread.id == thread.id %}
+      <div class="funder-messages-hub-card__wrap">
+        <a
+          href="{{ url_for('main.marketplace_messages', thread=thread.id, _anchor='message-thread-detail') }}"
+          class="sms-activity-hub-card funder-messages-hub-card{% if is_active %} is-featured is-active{% endif %}"
+          id="contact-thread-{{ thread.id }}"
+        >
+          <div class="sms-activity-hub-card__top">
+            <div>
+              <p class="sms-activity-hub-card__eyebrow">Conversation</p>
+              <h3>{{ profile.get('name', cbo.name) }}</h3>
+              <p class="sms-activity-hub-card__keyword">{{ profile.get('location', cbo.location) or 'Location TBD' }}</p>
+            </div>
+            {% if is_active %}
+              <span class="sms-activity-hub-pill sms-activity-hub-pill--featured">Open</span>
+            {% endif %}
+          </div>
+
+          <div class="sms-activity-hub-flags">
+            <span class="sms-activity-hub-pill sms-activity-hub-pill--sms">{{ thread.message_count }} message{{ 's' if thread.message_count != 1 else '' }}</span>
+            {% for cls in item.classifications[:2] %}
+              <span class="sms-activity-hub-pill sms-activity-hub-pill--muted">{{ cls | title }}</span>
+            {% endfor %}
+          </div>
+
+          <p class="funder-messages-hub-card__preview">{{ thread.last_message_preview or 'Open this conversation to review the full thread and send a reply.' }}</p>
+          <p class="sms-activity-hub-card__activity">Last updated {{ thread.last_message_at_label }}</p>
+
+          <div class="sms-activity-hub-card__actions">
+            <span class="btn btn-primary btn-sm">Open Messages</span>
+          </div>
+        </a>
+        <form
+          method="POST"
+          action="{{ url_for('main.delete_cbo_contact_thread', thread_id=thread.id) }}"
+          class="funder-messages-hub-card__delete-form"
+          data-cbo-name="{{ profile.get('name', cbo.name) | e }}"
+        >
+          <button type="submit" class="funder-messages-hub-card__delete-btn" title="Clear conversation">
+            <i class="fas fa-trash-alt"></i>
+          </button>
+        </form>
+      </div>
+    {% endfor %}
+  </section>
+
+  {% if active_message_thread %}
+    {% set cbo = active_message_thread.cbo %}
+    {% set profile = active_message_thread.profile or {} %}
+    {% set thread = active_message_thread.thread %}
+    <article class="contact-thread-card funder-messages-detail" id="message-thread-detail">
+      <div class="contact-thread-card__summary funder-messages-detail__summary">
+        <span class="contact-thread-card__identity">
+          <strong>{{ profile.get('name', cbo.name) }}</strong>
+          <small>{{ profile.get('location', cbo.location) or 'Location TBD' }}</small>
+        </span>
+        <span class="contact-thread-card__meta">{{ thread.message_count }} message{{ 's' if thread.message_count != 1 else '' }} · {{ thread.last_message_at_label }}</span>
+      </div>
+      <div class="contact-thread-card__body">
+        <div class="funder-messages-thread__headline">
+          {% if active_message_thread.classifications %}
+            <div class="funder-messages-thread__chips">
+              {% for cls in active_message_thread.classifications[:3] %}
+                <span class="classification-tag classification-tag--{{ cls }}">{{ cls | title }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <a href="{{ url_for('main.cbo_profile', slug=cbo.slug) }}" class="funder-messages-thread__profile-link">View Profile <i class="fas fa-arrow-right"></i></a>
+        </div>
+
+        {% if thread and thread.messages %}
+          <div class="funder-messages-thread__pane">
+            <div class="contact-thread contact-thread--chat">
+              {{ render_contact_messages(thread.messages, chat=true) }}
+            </div>
+          </div>
+        {% else %}
+          <div class="funder-messages-thread__pane">
+            <p class="contact-thread__empty contact-thread__empty--boxed">No conversation yet. Your first message and any attachment will appear here.</p>
+          </div>
+        {% endif %}
+
+        <div class="funder-messages-thread__composer">
+          {{ render_funder_contact_form(cbo, active_message_thread.contact_post_url, return_to='messages', compact=true, message_label='New message') }}
+        </div>
+      </div>
+    </article>
+  {% endif %}
+</div>
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('.funder-messages-hub-card__delete-form').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      var name = form.dataset.cboName || 'this CBO';
+      if (!confirm('Clear this conversation with ' + name + '? This cannot be undone.')) {
+        e.preventDefault();
+      }
+    });
+  });
+</script>
+{% endblock %}
+{% endblock %}

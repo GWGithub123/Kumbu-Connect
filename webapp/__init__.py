@@ -53,6 +53,7 @@ def create_app() -> Flask:
     os.makedirs(app.config['BOOKKEEPING_UPLOAD_DIR'], exist_ok=True)
     os.makedirs(app.config['GOOGLE_FORM_UPLOAD_DIR'], exist_ok=True)
     os.makedirs(app.config['FUNDING_AUDIT_UPLOAD_DIR'], exist_ok=True)
+    os.makedirs(app.config['CONTACT_UPLOAD_DIR'], exist_ok=True)
 
     db.init_app(app)
     login_manager.init_app(app)

@@ -30,6 +30,8 @@
           {% else %}
             {% if current_user.has_role('funder') %}
               <a href="{{ url_for('main.marketplace') }}">Marketplace</a>
+              <a href="{{ url_for('main.marketplace_messages') }}">Messages</a>
+              <a href="{{ url_for('main.saved_cbos') }}">Saved CBOs</a>
             {% endif %}
             {% if current_user.has_role('cbo') and current_user.cbo_id %}
               <a href="{{ url_for('main.cbo_dashboard') }}">My Profile</a>
@@ -85,5 +87,141 @@
   {% endif %}
 
   {% block scripts %}{% endblock %}
+  <script>
+    (function () {
+      const saveButtonSelector = '[data-save-cbo-button]';
+
+      function updateSaveButton(button, saved) {
+        if (!button) {
+          return;
+        }
+        button.dataset.saved = saved ? 'true' : 'false';
+        button.setAttribute('aria-pressed', saved ? 'true' : 'false');
+        button.classList.toggle('is-saved', saved);
+        const label = saved
+          ? (button.dataset.savedLabel || 'Saved')
+          : (button.dataset.unsavedLabel || 'Save CBO');
+        button.innerHTML = `<i class="${saved ? 'fas' : 'far'} fa-bookmark"></i><span>${label}</span>`;
+      }
+
+      function statusNodeFor(button) {
+        return button.closest('[data-save-cbo-region]')?.querySelector('[data-save-cbo-status]') || null;
+      }
+
+      function setSaveStatus(button, message, tone) {
+        const node = statusNodeFor(button);
+        if (!node) {
+          return;
+        }
+        const text = String(message || '').trim();
+        if (!text) {
+          node.hidden = true;
+          node.textContent = '';
+          node.dataset.tone = '';
+          return;
+        }
+        node.hidden = false;
+        node.textContent = text;
+        node.dataset.tone = tone || 'neutral';
+      }
+
+      function syncButtonsForSlug(slug, saved) {
+        document.querySelectorAll(saveButtonSelector).forEach(button => {
+          if (button.dataset.cboSlug === slug) {
+            updateSaveButton(button, saved);
+            button.disabled = false;
+          }
+        });
+      }
+
+      function syncSavedListVisibility() {
+        const list = document.querySelector('[data-saved-cbo-list]');
+        const emptyState = document.querySelector('[data-saved-cbo-empty-state]');
+        if (!list || !emptyState) {
+          return;
+        }
+        const hasCards = Boolean(list.querySelector('[data-saved-cbo-card]'));
+        list.hidden = !hasCards;
+        emptyState.hidden = hasCards;
+      }
+
+      document.querySelectorAll(saveButtonSelector).forEach(button => {
+        updateSaveButton(button, button.dataset.saved === 'true');
+      });
+      syncSavedListVisibility();
+
+      document.addEventListener('click', async event => {
+        const button = event.target.closest(saveButtonSelector);
+        if (!button) {
+          return;
+        }
+
+        event.preventDefault();
+        if (button.disabled || !button.dataset.saveCboUrl || !button.dataset.cboSlug) {
+          return;
+        }
+
+        const slug = button.dataset.cboSlug;
+        document.querySelectorAll(saveButtonSelector).forEach(candidate => {
+          if (candidate.dataset.cboSlug === slug) {
+            candidate.disabled = true;
+          }
+        });
+        setSaveStatus(button, 'Updating saved list…', 'loading');
+
+        try {
+          const response = await fetch(button.dataset.saveCboUrl, {
+            method: 'POST',
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'same-origin',
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || payload.ok === false) {
+            throw new Error(payload.error || 'The saved list could not be updated right now.');
+          }
+
+          syncButtonsForSlug(slug, Boolean(payload.saved));
+          document.querySelectorAll(saveButtonSelector).forEach(candidate => {
+            if (candidate.dataset.cboSlug === slug) {
+              setSaveStatus(candidate, payload.message || '', 'success');
+            }
+          });
+
+          document.dispatchEvent(new CustomEvent('saved-cbo:changed', {
+            detail: {
+              slug,
+              saved: Boolean(payload.saved),
+              message: payload.message || '',
+            },
+          }));
+        } catch (error) {
+          document.querySelectorAll(saveButtonSelector).forEach(candidate => {
+            if (candidate.dataset.cboSlug === slug) {
+              candidate.disabled = false;
+              setSaveStatus(candidate, error.message || 'The saved list could not be updated right now.', 'error');
+            }
+          });
+        }
+      });
+
+      document.addEventListener('saved-cbo:changed', event => {
+        const slug = event.detail?.slug;
+        const saved = Boolean(event.detail?.saved);
+        if (!slug) {
+          return;
+        }
+
+        document.querySelectorAll('[data-saved-cbo-card]').forEach(card => {
+          if (card.dataset.cboSlug === slug && !saved) {
+            card.remove();
+          }
+        });
+
+        syncSavedListVisibility();
+      });
+    }());
+  </script>
 </body>
 </html>

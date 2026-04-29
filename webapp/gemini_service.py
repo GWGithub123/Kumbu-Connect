@@ -101,6 +101,35 @@ Rules:
 - Qualitative rationale should mention reviews or mission alignment when relevant.
 """
 
+MARKETPLACE_CBO_FOLLOWUP_SCHEMA = """
+{
+    "answer": "2-4 sentence direct answer grounded in the provided CBO context",
+    "evidence": ["2-4 short bullet points with concrete supporting facts or figures"],
+    "data_gaps": ["0-2 short notes about missing or uncertain data"],
+    "suggested_follow_ups": ["0-3 short follow-up questions the user could ask next"]
+}
+"""
+
+MARKETPLACE_CBO_FOLLOWUP_SYSTEM_PROMPT = f"""You answer follow-up questions about one specific CBO in the marketplace.
+
+You will receive:
+- an optional original marketplace search query
+- a user follow-up question
+- a grounded JSON context for exactly one CBO that may include profile fields, leadership, impact metrics,
+  bookkeeping records, funding audits, intake/survey answers, growth charts, and community feedback
+
+Return ONLY valid JSON matching this schema:
+
+{MARKETPLACE_CBO_FOLLOWUP_SCHEMA}
+
+Rules:
+- Use only the supplied context. Do not invent facts, numbers, dates, quotes, or funding details.
+- Prefer concrete evidence from the context, especially exact figures, counts, dates, and named programs.
+- Treat anecdotes, quotes, and survey responses as anecdotal evidence unless corroborated elsewhere.
+- If the answer is limited by missing data, say that plainly and keep data_gaps concise.
+- Keep the answer concise but specific enough to help a funder evaluate this exact CBO.
+"""
+
 STOPWORDS = {
         "a", "an", "and", "are", "as", "at", "be", "best", "by", "cbo", "cbos", "community",
         "for", "from", "has", "have", "higher", "in", "is", "looking", "me", "need", "of", "or",
@@ -576,6 +605,203 @@ def rank_marketplace_candidates(query: str, candidates: list[dict], search_plan:
     except Exception as exc:
         current_app.logger.warning('Gemini marketplace ranking failed: %s', exc)
         return local_ranking
+
+
+def _normalize_string_list(values, limit: int) -> list[str]:
+    normalized = []
+    for value in values or []:
+        text = re.sub(r'\s+', ' ', str(value or '')).strip()
+        if not text or text in normalized:
+            continue
+        normalized.append(text)
+        if len(normalized) >= limit:
+            break
+    return normalized
+
+
+def _fallback_marketplace_cbo_answer(question: str, cbo_context: dict, marketplace_query: str = '') -> dict:
+    question_lower = str(question or '').lower()
+    core = cbo_context.get('cbo_core') if isinstance(cbo_context.get('cbo_core'), dict) else {}
+    profile = cbo_context.get('ai_profile') if isinstance(cbo_context.get('ai_profile'), dict) else {}
+    bookkeeping = cbo_context.get('bookkeeping') if isinstance(cbo_context.get('bookkeeping'), dict) else {}
+    bookkeeping_summary = bookkeeping.get('summary') if isinstance(bookkeeping.get('summary'), dict) else {}
+    funding = cbo_context.get('funding_audits') if isinstance(cbo_context.get('funding_audits'), dict) else {}
+    feedback_summary = cbo_context.get('community_feedback_summary') if isinstance(cbo_context.get('community_feedback_summary'), dict) else {}
+    leadership = profile.get('leadership') if isinstance(profile.get('leadership'), dict) else {}
+    impact_items = profile.get('quantified_impact') if isinstance(profile.get('quantified_impact'), list) else []
+    focus_areas = str(profile.get('focus_areas') or core.get('focus_areas') or '').strip()
+    name = str(profile.get('name') or core.get('name') or 'This CBO').strip()
+    tagline = re.sub(r'\s+', ' ', str(profile.get('tagline') or '').strip())
+    avg_rating = feedback_summary.get('avg_rating')
+    response_count = int(feedback_summary.get('responses') or 0)
+    income_total = bookkeeping_summary.get('income_total')
+    expense_total = bookkeeping_summary.get('expense_total')
+    net_total = bookkeeping_summary.get('net_total')
+    declared_funding_total = funding.get('declared_funding_total')
+    verified_count = int(funding.get('verified_count') or 0)
+    document_count = int(bookkeeping_summary.get('document_count') or 0)
+
+    answer_parts = []
+    if any(keyword in question_lower for keyword in ('leader', 'leadership', 'governance', 'director', 'chair', 'finance lead')):
+        listed_roles = []
+        if leadership.get('chairperson'):
+            listed_roles.append(f"chair {leadership['chairperson']}")
+        if leadership.get('program_director'):
+            listed_roles.append(f"program director {leadership['program_director']}")
+        if leadership.get('finance_lead'):
+            listed_roles.append(f"finance lead {leadership['finance_lead']}")
+        if listed_roles:
+            answer_parts.append(f"{name} lists {'; '.join(listed_roles)} in the current profile data.")
+        else:
+            answer_parts.append(f"The current profile for {name} does not list a full leadership team, so the governance picture is still partial.")
+    elif any(keyword in question_lower for keyword in ('finance', 'financial', 'revenue', 'budget', 'cost', 'cash', 'expense', 'sustain', 'sustainability')):
+        if income_total or expense_total or net_total:
+            answer_parts.append(
+                f"The strongest financial evidence for {name} comes from the bookkeeping records, which currently show "
+                f"KSh {float(income_total or 0):,.0f} income, KSh {float(expense_total or 0):,.0f} expenses, and KSh {float(net_total or 0):,.0f} net."
+            )
+        elif declared_funding_total:
+            answer_parts.append(
+                f"The clearest financial evidence currently on file is KSh {float(declared_funding_total or 0):,.0f} in declared funding documents."
+            )
+        else:
+            answer_parts.append(f"The current profile for {name} has limited hard financial evidence, so any financial judgment should stay provisional.")
+    elif any(keyword in question_lower for keyword in ('community', 'feedback', 'review', 'survey', 'quote', 'anecdote')):
+        if avg_rating is not None:
+            answer_parts.append(f"Community feedback for {name} currently averages {avg_rating}/10 across {response_count} recorded response{'s' if response_count != 1 else ''}.")
+        elif response_count:
+            answer_parts.append(f"{name} has {response_count} recorded community response{'s' if response_count != 1 else ''}, but they do not yet roll up into a clear average rating.")
+        else:
+            answer_parts.append(f"There is little direct community feedback on file for {name} right now, so the public sentiment evidence is thin.")
+    else:
+        if tagline:
+            answer_parts.append(f"{name} is positioned as: {tagline.rstrip('.')}.")
+        elif focus_areas:
+            answer_parts.append(f"{name} is most clearly described as working in {focus_areas}.")
+
+        if impact_items:
+            first_impact = impact_items[0] if isinstance(impact_items[0], dict) else {}
+            metric_bits = ' '.join(part for part in [str(first_impact.get('metric_value') or '').strip(), str(first_impact.get('metric_unit') or '').strip()] if part).strip()
+            description = str(first_impact.get('description') or '').strip()
+            if metric_bits or description:
+                answer_parts.append(f"The strongest impact signal in the profile is {metric_bits} {description}".strip() + '.')
+
+        if income_total or declared_funding_total:
+            answer_parts.append(
+                f"Operationally, the file includes {document_count} bookkeeping document{'s' if document_count != 1 else ''}"
+                + (
+                    f" and KSh {float(income_total or 0):,.0f} tracked income."
+                    if income_total else
+                    f" and KSh {float(declared_funding_total or 0):,.0f} declared funding."
+                )
+            )
+
+        if avg_rating is not None:
+            answer_parts.append(f"Community feedback is moderately grounded with an average rating of {avg_rating}/10 from {response_count} response{'s' if response_count != 1 else ''}.")
+        elif response_count == 0:
+            answer_parts.append('Direct community sentiment is still sparse in the available data.')
+
+    if marketplace_query:
+        answer_parts.append(f"This answer is grounded in the same CBO record surfaced for the marketplace search: \"{marketplace_query}\".")
+
+    evidence = []
+    if impact_items:
+        first_impact = impact_items[0] if isinstance(impact_items[0], dict) else {}
+        metric_bits = ' '.join(part for part in [str(first_impact.get('metric_value') or '').strip(), str(first_impact.get('metric_unit') or '').strip()] if part).strip()
+        description = str(first_impact.get('description') or '').strip()
+        if metric_bits or description:
+            evidence.append(f"Impact profile: {metric_bits} {description}".strip())
+    if income_total or expense_total or net_total:
+        evidence.append(
+            f"Bookkeeping totals: income KSh {float(income_total or 0):,.0f}, expenses KSh {float(expense_total or 0):,.0f}, net KSh {float(net_total or 0):,.0f}"
+        )
+    if declared_funding_total:
+        evidence.append(f"Funding audits: KSh {float(declared_funding_total or 0):,.0f} declared funding across {int(funding.get('document_count') or 0)} document(s)")
+    if avg_rating is not None:
+        evidence.append(f"Community feedback: {avg_rating}/10 average rating from {response_count} response(s)")
+    elif response_count:
+        evidence.append(f"Community feedback: {response_count} response(s) recorded")
+    if leadership.get('chairperson') or leadership.get('program_director') or leadership.get('finance_lead'):
+        evidence.append(
+            'Leadership listed: ' + ', '.join(
+                text for text in [
+                    leadership.get('chairperson'),
+                    leadership.get('program_director'),
+                    leadership.get('finance_lead'),
+                ] if text
+            )
+        )
+
+    data_gaps = []
+    if response_count == 0:
+        data_gaps.append('Community survey and review evidence is still thin for this CBO.')
+    if not document_count:
+        data_gaps.append('No bookkeeping documents are currently on file, so financial visibility is limited.')
+    if not verified_count and int(funding.get('document_count') or 0):
+        data_gaps.append('Funding documents are present, but none are marked verified yet.')
+    elif not int(funding.get('document_count') or 0):
+        data_gaps.append('No funding audit documents are currently attached to this CBO profile.')
+
+    suggested_follow_ups = []
+    if any(keyword in question_lower for keyword in ('finance', 'financial', 'budget', 'revenue', 'cost')):
+        suggested_follow_ups.append('What do the recent bookkeeping trends suggest about sustainability?')
+        suggested_follow_ups.append('Which operating costs or revenue lines are most visible in the records?')
+    elif any(keyword in question_lower for keyword in ('community', 'feedback', 'review', 'survey')):
+        suggested_follow_ups.append('What do the recorded anecdotes say about beneficiary outcomes?')
+        suggested_follow_ups.append('Are there any obvious gaps in the community evidence for this CBO?')
+    else:
+        suggested_follow_ups.append('How strong is this CBO financially based on the records on file?')
+        suggested_follow_ups.append('What is the strongest evidence that this CBO is delivering impact?')
+
+    return {
+        'answer': re.sub(r'\s+', ' ', ' '.join(part for part in answer_parts if part).strip()) or f"There is limited grounded context available for {name}, so the answer should stay cautious.",
+        'evidence': _normalize_string_list(evidence, limit=4),
+        'data_gaps': _normalize_string_list(data_gaps, limit=2),
+        'suggested_follow_ups': _normalize_string_list(suggested_follow_ups, limit=3),
+    }
+
+
+def answer_marketplace_cbo_question(question: str, cbo_context: dict, marketplace_query: str = '') -> dict:
+    question = str(question or '').strip()
+    local_answer = _fallback_marketplace_cbo_answer(question, cbo_context or {}, marketplace_query=marketplace_query)
+    if not question:
+        return local_answer
+
+    api_key = current_app.config['GEMINI_API_KEY']
+    if not api_key:
+        return local_answer
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[
+                MARKETPLACE_CBO_FOLLOWUP_SYSTEM_PROMPT,
+                json.dumps({
+                    'marketplace_query': marketplace_query,
+                    'follow_up_question': question,
+                    'cbo_context': cbo_context or {},
+                }, indent=2, default=str),
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.15,
+                response_mime_type='application/json',
+            ),
+        )
+        payload = _parse_json_response(response.text)
+        if not isinstance(payload, dict):
+            raise ValueError('Gemini marketplace CBO follow-up answer was not a JSON object')
+
+        answer = re.sub(r'\s+', ' ', str(payload.get('answer') or '').strip()) or local_answer['answer']
+        return {
+            'answer': answer,
+            'evidence': _normalize_string_list(payload.get('evidence') or local_answer['evidence'], limit=4),
+            'data_gaps': _normalize_string_list(payload.get('data_gaps') or local_answer['data_gaps'], limit=2),
+            'suggested_follow_ups': _normalize_string_list(payload.get('suggested_follow_ups') or local_answer['suggested_follow_ups'], limit=3),
+        }
+    except Exception as exc:
+        current_app.logger.warning('Gemini marketplace CBO follow-up failed: %s', exc)
+        return local_answer
 
 
 def compute_data_quality_badge(raw_submissions: list[dict]) -> str:

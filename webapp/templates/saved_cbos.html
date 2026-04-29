@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Saved CBOs — Kumbu Connect{% endblock %}
+{% from "_cbo_card_macros.html" import render_cbo_card %}
+
+{% block content %}
+<div class="container saved-cbos-page">
+  <section class="saved-cbos-hero">
+    <div>
+      <p class="saved-cbos-hero__eyebrow">Funder shortlist</p>
+      <h1>Saved CBOs</h1>
+      <p>Keep promising organisations in one place while you compare fit, risk, traction, and community signals.</p>
+      <p class="saved-cbos-hero__count">{{ saved_cards|length }} saved {{ 'organisation' if saved_cards|length == 1 else 'organisations' }}</p>
+    </div>
+    <a href="{{ url_for('main.marketplace') }}" class="btn btn-outline">Back to Marketplace</a>
+  </section>
+
+  <section class="saved-cbo-empty" data-saved-cbo-empty-state {% if saved_cards %}hidden{% endif %}>
+    <h2>No saved CBOs yet</h2>
+    <p>Save organisations from the marketplace or any CBO profile to build a shortlist.</p>
+    <a href="{{ url_for('main.marketplace') }}" class="btn btn-primary">Explore Marketplace</a>
+  </section>
+
+  <section class="saved-cbo-grid" data-saved-cbo-list {% if not saved_cards %}hidden{% endif %}>
+    {% for item in saved_cards %}
+      {{ render_cbo_card(item, false) }}
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    function detachContactModals() {
+      document.querySelectorAll('[data-contact-modal-root]').forEach(modal => {
+        if (modal.dataset.detachedToBody === 'true') {
+          return;
+        }
+        document.body.appendChild(modal);
+        modal.dataset.detachedToBody = 'true';
+      });
+    }
+
+    function setContactModalExpanded(modalId, expanded) {
+      document.querySelectorAll(`[data-contact-modal-open="${modalId}"]`).forEach(button => {
+        button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      });
+    }
+
+    function openContactModal(modalId) {
+      detachContactModals();
+      const modal = document.getElementById(modalId);
+      if (!modal) {
+        return;
+      }
+      modal.hidden = false;
+      document.body.classList.add('modal-open');
+      setContactModalExpanded(modalId, true);
+      const firstField = modal.querySelector('textarea, input, button');
+      if (firstField) {
+        window.setTimeout(() => {
+          firstField.focus({ preventScroll: true });
+        }, 0);
+      }
+    }
+
+    function closeContactModal(modal) {
+      if (!modal) {
+        return;
+      }
+      modal.hidden = true;
+      if (modal.id) {
+        setContactModalExpanded(modal.id, false);
+        const opener = document.querySelector(`[data-contact-modal-open="${modal.id}"]`);
+        if (opener) {
+          opener.focus({ preventScroll: true });
+        }
+      }
+      if (!document.querySelector('[data-contact-modal-root]:not([hidden])')) {
+        document.body.classList.remove('modal-open');
+      }
+    }
+
+    function syncContactModalFromHash() {
+      const rawHash = String(window.location.hash || '').trim();
+      if (!rawHash || rawHash === '#') {
+        return;
+      }
+
+      const target = document.getElementById(rawHash.slice(1));
+      if (!target) {
+        return;
+      }
+
+      const trigger = target.matches('[data-contact-modal-open]')
+        ? target
+        : target.querySelector('[data-contact-modal-open]');
+      const modalId = trigger?.dataset.contactModalOpen;
+      if (modalId) {
+        openContactModal(modalId);
+      }
+    }
+
+    document.addEventListener('click', event => {
+      const openTrigger = event.target.closest('[data-contact-modal-open]');
+      if (openTrigger) {
+        event.preventDefault();
+        event.stopPropagation();
+        const modalId = openTrigger.dataset.contactModalOpen;
+        if (modalId) {
+          openContactModal(modalId);
+        }
+        return;
+      }
+
+      const closeTrigger = event.target.closest('[data-contact-modal-close]');
+      if (closeTrigger) {
+        closeContactModal(closeTrigger.closest('[data-contact-modal-root]'));
+      }
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      const activeModal = document.querySelector('[data-contact-modal-root]:not([hidden])');
+      if (activeModal) {
+        closeContactModal(activeModal);
+      }
+    });
+
+    detachContactModals();
+    syncContactModalFromHash();
+  }());
+</script>
+{% endblock %}

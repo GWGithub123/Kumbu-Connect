@@ -1,0 +1,146 @@
+{% from "_contact_macros.html" import render_funder_contact_modal %}
+
+{% macro render_cbo_card(item, ai_search_active) %}
+  {% set cbo = item.cbo %}
+  {% set p = item.profile %}
+  {% set badge = item.badge or 'bronze' %}
+  {% set classes = item.classifications or [] %}
+  {% set feedback = item.community_feedback or {} %}
+  {% set featured_feedback = feedback.get('featured_quote') %}
+  {% set score = item.score or 0 %}
+  {% set total_rev = item.total_revenue %}
+  {% set rev_growth = item.revenue_growth %}
+  {% set ai_match = item.ai_match or {} %}
+
+  <article class="cbo-card" data-saved-cbo-card data-cbo-slug="{{ cbo.slug }}">
+    <a href="{{ url_for('main.cbo_profile', slug=cbo.slug) }}" class="cbo-card__stretch-link" aria-label="Open {{ p.get('name', cbo.name) }} profile"></a>
+    <div class="cbo-card__content">
+      <div class="card-header-bar">
+        <div class="card-title-row">
+          <h2>{{ p.get('name', cbo.name) }}</h2>
+          <div class="card-title-row__meta">
+            <span class="data-badge data-badge--{{ badge }} data-badge--sm">
+              {% if badge == 'gold' %}🥇{% elif badge == 'silver' %}🥈{% else %}🥉{% endif %}
+              Data Quality: {{ badge | title }}
+            </span>
+            {% if item.can_save_by_viewer %}
+              <div class="save-cbo-region" data-save-cbo-region>
+                <button
+                  type="button"
+                  class="save-cbo-button save-cbo-button--warm save-cbo-button--compact"
+                  data-save-cbo-button
+                  data-cbo-slug="{{ cbo.slug }}"
+                  data-save-cbo-url="{{ url_for('main.api_toggle_saved_cbo', slug=cbo.slug) }}"
+                  data-unsaved-label="Save"
+                  data-saved-label="Saved"
+                  data-saved="{{ 'true' if item.saved_by_viewer else 'false' }}"
+                  aria-pressed="{{ 'true' if item.saved_by_viewer else 'false' }}"
+                ><i class="{{ 'fas' if item.saved_by_viewer else 'far' }} fa-bookmark"></i><span>{{ 'Saved' if item.saved_by_viewer else 'Save' }}</span></button>
+                <div class="save-cbo-status" data-save-cbo-status hidden></div>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+        {% if p.get('tagline') %}
+          <p class="tagline">{{ p.tagline }}</p>
+        {% endif %}
+        {% if classes %}
+        <div class="card-classifications">
+          {% for cls in classes %}
+            <span class="classification-tag classification-tag--{{ cls }}">{{ cls | title }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+
+      {% if score %}
+      <div class="card-score-row">
+        <span class="score-label"><i class="fas fa-star"></i> Social Impact</span>
+        <div class="score-bar-mini-wrap">
+          <div class="score-bar-mini" data-score="{{ score }}"></div>
+        </div>
+        <span class="score-num">{{ score }}/100</span>
+      </div>
+      {% endif %}
+
+      {% if ai_search_active and ai_match %}
+      <div class="card-ai-match">
+        <div class="card-ai-match__header">
+          <span><i class="fas fa-bullseye"></i> AI Match</span>
+          <strong>{{ ai_match.get('score', 0) }}/100</strong>
+        </div>
+        {% if ai_match.get('reasons') %}
+        <ul class="card-ai-match__reasons">
+          {% for reason in ai_match.get('reasons') %}
+            <li>{{ reason }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        {% if ai_match.get('qualitative_rationale') %}
+          <p class="card-ai-match__note">{{ ai_match.get('qualitative_rationale') }}</p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <div class="card-meta">
+        <span><i class="fas fa-map-marker-alt"></i> {{ p.get('location', cbo.location) or 'Location TBD' }}</span>
+        <span><i class="fas fa-calendar"></i> Est. {{ p.get('founded_year', cbo.founded_year) or '—' }}</span>
+        {% if total_rev %}
+          <span><i class="fas fa-coins"></i> KSh {{ "{:,.0f}".format(total_rev) }}</span>
+        {% endif %}
+        {% if rev_growth is not none %}
+          <span class="{% if rev_growth >= 0 %}growth-up{% else %}growth-down{% endif %}">
+            <i class="fas fa-{% if rev_growth >= 0 %}arrow-up{% else %}arrow-down{% endif %}"></i>
+            {{ "%.1f"|format(rev_growth|abs) }}% rev Q/Q
+          </span>
+        {% endif %}
+      </div>
+
+      <div class="card-impacts">
+        {% for impact in (p.get('quantified_impact', []))[:3] %}
+          <div class="impact-chip">
+            <i class="fas fa-{{ _icon(impact.get('icon_hint','chart-up')) }}"></i>
+            <strong>{{ impact.metric_value }}</strong>
+            <span>{{ impact.metric_unit }}</span>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="card-community-feedback">
+        <div class="card-community-feedback__header">
+          <span class="card-community-feedback__title"><i class="fas fa-comments"></i> Community Feedback</span>
+          {% if feedback.get('avg_rating') is not none %}
+            <span class="card-community-feedback__rating">{{ feedback.get('avg_rating') }}/10</span>
+          {% else %}
+            <span class="card-community-feedback__rating card-community-feedback__rating--empty">No ratings yet</span>
+          {% endif %}
+        </div>
+        <div class="card-community-feedback__stats">
+          <span>{{ feedback.get('responses', 0) }} response{{ 's' if feedback.get('responses', 0) != 1 else '' }}</span>
+          <span>{{ feedback.get('subscribers', 0) }} subscriber{{ 's' if feedback.get('subscribers', 0) != 1 else '' }}</span>
+        </div>
+        {% if featured_feedback %}
+          <p class="card-community-feedback__quote">"{{ featured_feedback.get('quote') }}"</p>
+        {% elif feedback.get('recent_quotes') %}
+          {% set recent_quote = feedback.get('recent_quotes')[0] %}
+          <p class="card-community-feedback__quote">"{{ recent_quote.get('quote') }}"</p>
+        {% else %}
+          <p class="card-community-feedback__quote card-community-feedback__quote--empty">This CBO has not received community feedback yet.</p>
+        {% endif %}
+      </div>
+
+      {% if item.contact_post_url %}
+      {{ render_funder_contact_modal(cbo, item.contact_post_url, item.contact_thread, return_to='saved-cbos', trigger_id='contact-' ~ cbo.slug, modal_id='contact-modal-' ~ cbo.slug, trigger_variant='card') }}
+      {% endif %}
+
+      <div class="card-footer">
+        {% if cbo.last_synced %}
+          <span class="sync-badge"><i class="fas fa-sync-alt"></i> Synced {{ cbo.last_synced.strftime('%b %d') }}</span>
+        {% else %}
+          <span class="sync-badge pending"><i class="fas fa-clock"></i> Not yet synced</span>
+        {% endif %}
+        <span class="view-link">View Profile <i class="fas fa-arrow-right"></i></span>
+      </div>
+    </div>
+  </article>
+{% endmacro %}

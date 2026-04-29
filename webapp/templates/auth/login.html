@@ -61,29 +61,7 @@
       <button type="submit" class="btn btn-primary btn-block">
         <i class="fas fa-sign-in-alt"></i> Log In
       </button>
-
-      {% if temp_login_bypass_enabled %}
-      <button type="submit" name="action" value="bypass" formnovalidate class="btn btn-outline btn-block" style="margin-top:0.75rem;">
-        <i class="fas fa-unlock"></i> Temporary Password Bypass
-      </button>
-      <div class="auth-callout" style="margin-top:0.75rem;">
-        Temporary local bypass is enabled. It ignores the email field and signs you into the selected role's temporary workspace.
-      </div>
-      {% endif %}
     </form>
-
-    {% if google_user and google_user.enabled %}
-    <div class="auth-callout" style="margin-top:1rem;">
-      Already matched to a pre-built CBO account?
-    </div>
-    <a href="{{ url_for('auth.google_login_start', next=request.args.get('next', ''), email=prefill_email or '') }}" class="btn btn-outline btn-block btn-google-login" style="margin-top:0.75rem;">
-      <i class="fab fa-google"></i> Continue With Google
-    </a>
-    {% elif google_user and google_user.error %}
-    <div class="auth-callout auth-callout--error" style="margin-top:1rem;">
-      {{ google_user.error }}
-    </div>
-    {% endif %}
     {% endif %}
 
     <p class="auth-footer-text">

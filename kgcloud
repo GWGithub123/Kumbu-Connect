@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+KUMBU_CLOUDSDK_CONFIG="${KUMBU_CLOUDSDK_CONFIG:-$HOME/.config/gcloud-kumbu}"
+
+if [[ -z "${CLOUDSDK_CONFIG:-}" && -d "$KUMBU_CLOUDSDK_CONFIG" ]]; then
+	export CLOUDSDK_CONFIG="$KUMBU_CLOUDSDK_CONFIG"
+fi
+
 export CLOUDSDK_ACTIVE_CONFIG_NAME="${CLOUDSDK_ACTIVE_CONFIG_NAME:-kumbu-connect}"
 
 exec gcloud "$@"

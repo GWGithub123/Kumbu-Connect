@@ -1,132 +1,14 @@
 {% extends "base.html" %}
 {% block title %}CBO Marketplace — Kumbu Connect{% endblock %}
+{% from "_cbo_card_macros.html" import render_cbo_card %}
 
 {% block content %}
-{% macro render_cbo_card(item, ai_search_active) %}
-  {% set cbo = item.cbo %}
-  {% set p = item.profile %}
-  {% set badge = item.badge or 'bronze' %}
-  {% set classes = item.classifications or [] %}
-  {% set feedback = item.community_feedback or {} %}
-  {% set score = item.score or 0 %}
-  {% set total_rev = item.total_revenue %}
-  {% set rev_growth = item.revenue_growth %}
-  {% set ai_match = item.ai_match or {} %}
-
-  <a href="{{ url_for('main.cbo_profile', slug=cbo.slug) }}" class="cbo-card-link">
-    <div class="cbo-card">
-      <div class="card-header-bar">
-        <div class="card-title-row">
-          <h2>{{ p.get('name', cbo.name) }}</h2>
-          <span class="data-badge data-badge--{{ badge }} data-badge--sm">
-            {% if badge == 'gold' %}🥇{% elif badge == 'silver' %}🥈{% else %}🥉{% endif %}
-            Data Quality: {{ badge | title }}
-          </span>
-        </div>
-        {% if p.get('tagline') %}
-          <p class="tagline">{{ p.tagline }}</p>
-        {% endif %}
-        {% if classes %}
-        <div class="card-classifications">
-          {% for cls in classes %}
-            <span class="classification-tag classification-tag--{{ cls }}">{{ cls | title }}</span>
-          {% endfor %}
-        </div>
-        {% endif %}
-      </div>
-
-      {% if score %}
-      <div class="card-score-row">
-        <span class="score-label"><i class="fas fa-star"></i> Social Impact</span>
-        <div class="score-bar-mini-wrap">
-          <div class="score-bar-mini" data-score="{{ score }}"></div>
-        </div>
-        <span class="score-num">{{ score }}/100</span>
-      </div>
-      {% endif %}
-
-      {% if ai_search_active and ai_match %}
-      <div class="card-ai-match">
-        <div class="card-ai-match__header">
-          <span><i class="fas fa-bullseye"></i> AI Match</span>
-          <strong>{{ ai_match.get('score', 0) }}/100</strong>
-        </div>
-        {% if ai_match.get('reasons') %}
-        <ul class="card-ai-match__reasons">
-          {% for reason in ai_match.get('reasons') %}
-            <li>{{ reason }}</li>
-          {% endfor %}
-        </ul>
-        {% endif %}
-        {% if ai_match.get('qualitative_rationale') %}
-          <p class="card-ai-match__note">{{ ai_match.get('qualitative_rationale') }}</p>
-        {% endif %}
-      </div>
-      {% endif %}
-
-      <div class="card-meta">
-        <span><i class="fas fa-map-marker-alt"></i> {{ p.get('location', cbo.location) or 'Location TBD' }}</span>
-        <span><i class="fas fa-calendar"></i> Est. {{ p.get('founded_year', cbo.founded_year) or '—' }}</span>
-        {% if total_rev %}
-          <span><i class="fas fa-coins"></i> KSh {{ "{:,.0f}".format(total_rev) }}</span>
-        {% endif %}
-        {% if rev_growth is not none %}
-          <span class="{% if rev_growth >= 0 %}growth-up{% else %}growth-down{% endif %}">
-            <i class="fas fa-{% if rev_growth >= 0 %}arrow-up{% else %}arrow-down{% endif %}"></i>
-            {{ "%.1f"|format(rev_growth|abs) }}% rev Q/Q
-          </span>
-        {% endif %}
-      </div>
-
-      <div class="card-impacts">
-        {% for impact in (p.get('quantified_impact', []))[:3] %}
-          <div class="impact-chip">
-            <i class="fas fa-{{ _icon(impact.get('icon_hint','chart-up')) }}"></i>
-            <strong>{{ impact.metric_value }}</strong>
-            <span>{{ impact.metric_unit }}</span>
-          </div>
-        {% endfor %}
-      </div>
-
-      <div class="card-community-feedback">
-        <div class="card-community-feedback__header">
-          <span class="card-community-feedback__title"><i class="fas fa-comments"></i> Community Feedback</span>
-          {% if feedback.get('avg_rating') is not none %}
-            <span class="card-community-feedback__rating">{{ feedback.get('avg_rating') }}/10</span>
-          {% else %}
-            <span class="card-community-feedback__rating card-community-feedback__rating--empty">No ratings yet</span>
-          {% endif %}
-        </div>
-        <div class="card-community-feedback__stats">
-          <span>{{ feedback.get('responses', 0) }} response{{ 's' if feedback.get('responses', 0) != 1 else '' }}</span>
-          <span>{{ feedback.get('subscribers', 0) }} subscriber{{ 's' if feedback.get('subscribers', 0) != 1 else '' }}</span>
-        </div>
-        {% if feedback.get('recent_quotes') %}
-          {% set recent_quote = feedback.get('recent_quotes')[0] %}
-          <p class="card-community-feedback__quote">"{{ recent_quote.get('quote') }}"</p>
-        {% else %}
-          <p class="card-community-feedback__quote card-community-feedback__quote--empty">This CBO has not received community feedback yet.</p>
-        {% endif %}
-      </div>
-
-      <div class="card-footer">
-        {% if cbo.last_synced %}
-          <span class="sync-badge"><i class="fas fa-sync-alt"></i> Synced {{ cbo.last_synced.strftime('%b %d') }}</span>
-        {% else %}
-          <span class="sync-badge pending"><i class="fas fa-clock"></i> Not yet synced</span>
-        {% endif %}
-        <span class="view-link">View Profile <i class="fas fa-arrow-right"></i></span>
-      </div>
-    </div>
-  </a>
-{% endmacro %}
-
 <div class="container">
   <div class="marketplace-header">
     <h1><i class="fas fa-store"></i> CBO Marketplace</h1>
-    <p>Browse community organisations, review their live operational data, and discover social-impact investment opportunities.</p>
   </div>
 
+  <div id="marketplaceExperience">
   <section class="marketplace-map-card marketplace-map-card--streamlined">
     <form method="GET" action="{{ url_for('main.marketplace') }}" class="marketplace-search-panel" id="filterForm">
       <div class="marketplace-search-row">
@@ -207,9 +89,27 @@
             <button type="button" class="map-view-toggle" data-map-view="satellite">Satellite</button>
           </div>
         </div>
-        <div class="marketplace-map-loading-frame" aria-hidden="true"></div>
+        <div class="marketplace-map-loading-frame" aria-hidden="true">
+          <svg class="marketplace-map-loading-track" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="marketplaceMapLoadingGradient" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0">
+                <stop offset="0%" stop-color="#06b6d4"></stop>
+                <stop offset="35%" stop-color="#22c55e"></stop>
+                <stop offset="68%" stop-color="#f59e0b"></stop>
+                <stop offset="100%" stop-color="#7c3aed"></stop>
+              </linearGradient>
+            </defs>
+            <path class="marketplace-map-loading-track__base" d="M 2 2 H 98 V 94 Q 98 98 94 98 H 6 Q 2 98 2 94 V 2"></path>
+            <path class="marketplace-map-loading-track__color" d="M 2 2 H 98 V 94 Q 98 98 94 98 H 6 Q 2 98 2 94 V 2"></path>
+            <path class="marketplace-map-loading-track__glow" d="M 2 2 H 98 V 94 Q 98 98 94 98 H 6 Q 2 98 2 94 V 2"></path>
+          </svg>
+        </div>
         <div class="marketplace-map-overlays" id="marketplaceMapOverlays" aria-hidden="true"></div>
         <div id="marketplaceMap" class="marketplace-map-canvas marketplace-map-canvas--full"></div>
+        <div id="aiSearchStatusBar" class="ai-search-status-bar" hidden aria-live="polite" aria-atomic="true">
+          <span class="ai-search-status-bar__icon"><img src="{{ url_for('static', filename='img/kumbu-connect-logo-mark.png') }}" alt="" aria-hidden="true" class="ai-search-status-bar__logo"></span>
+          <span id="aiSearchStatusText" class="ai-search-status-bar__text"></span>
+        </div>
       {% else %}
         <div class="marketplace-map-empty">
           <i class="fas fa-map-marked-alt"></i>
@@ -230,18 +130,38 @@
     <div class="top-results-strip__list">
       {% for item in top_result_entries[:4] %}
         {% set match = item.ai_match or {} %}
-        <a href="{{ url_for('main.cbo_profile', slug=item.cbo.slug) }}" class="top-results-card">
+        <article class="top-results-card">
+          <a href="{{ url_for('main.cbo_profile', slug=item.cbo.slug) }}" class="top-results-card__stretch-link" aria-label="Open {{ item.profile.get('name', item.cbo.name) }} profile"></a>
+          {% if item.can_save_by_viewer %}
+          <div class="top-results-card__actions save-cbo-region" data-save-cbo-region>
+            <button
+              type="button"
+              class="save-cbo-button save-cbo-button--warm save-cbo-button--compact"
+              data-save-cbo-button
+              data-cbo-slug="{{ item.cbo.slug }}"
+              data-save-cbo-url="{{ url_for('main.api_toggle_saved_cbo', slug=item.cbo.slug) }}"
+              data-unsaved-label="Save"
+              data-saved-label="Saved"
+              data-saved="{{ 'true' if item.saved_by_viewer else 'false' }}"
+              aria-pressed="{{ 'true' if item.saved_by_viewer else 'false' }}"
+            ><i class="{{ 'fas' if item.saved_by_viewer else 'far' }} fa-bookmark"></i><span>{{ 'Saved' if item.saved_by_viewer else 'Save' }}</span></button>
+          </div>
+          {% endif %}
           <span class="top-results-card__score">{{ match.get('score', item.score or 0) }}/100</span>
           <strong>{{ item.profile.get('name', item.cbo.name) }}</strong>
           <span class="top-results-card__meta">{{ item.profile.get('location', item.cbo.location) or 'Location TBD' }}</span>
-          {% if item.get('detailed_ai_overview') %}
+          {% if item.get('detailed_ai_overview_bullets') %}
           <div class="top-results-card__analysis-block">
-            <span class="top-results-card__analysis-label">Overview</span>
-            <p class="top-results-card__analysis-copy">{{ item.get('detailed_ai_overview') }}</p>
+            <span class="top-results-card__analysis-label">Why It Fits</span>
+            <ul class="top-results-card__analysis-list">
+              {% for bullet in item.get('detailed_ai_overview_bullets', [])[:4] %}
+                <li>{{ bullet }}</li>
+              {% endfor %}
+            </ul>
           </div>
           {% endif %}
           <span class="top-results-card__button">View Profile <i class="fas fa-arrow-right"></i></span>
-        </a>
+        </article>
       {% endfor %}
     </div>
   </section>
@@ -270,7 +190,7 @@
     </div>
   {% else %}
     {% if ai_search_active and ai_match_groups %}
-    <div class="ai-match-groups">
+    <div class="ai-match-groups ai-match-groups--{{ ai_match_groups | length }}">
       {% for group in ai_match_groups %}
       <section class="ai-match-group ai-match-group--{{ group.key }}">
         <div class="ai-match-group__header">
@@ -297,6 +217,8 @@
     </div>
     {% endif %}
   {% endif %}
+  <script id="marketplace-map-data" type="application/json">{{ {'pins': map_pins, 'apiKey': google_maps_api_key, 'aiSearchActive': ai_search_active} | tojson }}</script>
+  </div>
 </div>
 
 <div class="map-modal" id="cboMapModal" hidden>
@@ -314,41 +236,278 @@
   </div>
 </div>
 
-<script id="marketplace-map-data" type="application/json">{{ {'pins': map_pins, 'apiKey': google_maps_api_key, 'aiSearchActive': ai_search_active} | tojson }}</script>
 {% endblock %}
 
 {% block scripts %}
 <script>
-const mapDataNode = document.getElementById('marketplace-map-data');
-const mapData = mapDataNode ? JSON.parse(mapDataNode.textContent || '{}') : {};
-const mapPins = Array.isArray(mapData.pins) ? mapData.pins : [];
-const mapsApiKey = mapData.apiKey || '';
 const mapModal = document.getElementById('cboMapModal');
 const mapModalTitle = document.getElementById('cboMapModalTitle');
 const mapModalSubtitle = document.getElementById('cboMapModalSubtitle');
 const mapModalBody = document.getElementById('cboMapModalBody');
-const mapOverlayRoot = document.getElementById('marketplaceMapOverlays');
-const mapViewToggles = Array.from(document.querySelectorAll('[data-map-view]'));
-const filterToggle = document.getElementById('toggleFilters');
-const secondaryFilters = document.getElementById('secondaryFilters');
-const aiSearchActive = Boolean(mapData.aiSearchActive);
+let marketplaceRoot = null;
+let filterForm = null;
+let filterToggle = null;
+let secondaryFilters = null;
+let mapDataNode = null;
+let mapOverlayRoot = null;
+let mapViewToggles = [];
+let mapStage = null;
+let mapPins = [];
+let mapsApiKey = '';
+let aiSearchActive = false;
+let mapLoadingTrack = null;
+let mapLoadingGradient = null;
+let mapLoadingTrackPaths = [];
 let marketplaceMapInstance = null;
 let mapMarkers = [];
 let analysisCards = [];
-let hoverInfoWindow = null;
+let hoverCardState = null;
 let hoverCloseTimeout = null;
+let marketplaceRequestController = null;
+let mapsLoaderPromise = null;
+let marketplaceViewMode = 'terrain';
+let mapLoadingRunnerFrameId = 0;
+let mapLoadingRunnerStartTime = 0;
+let aiStatusInterval = null;
+const ANALYSIS_LABEL_MIN_ZOOM = 8;
+let analysisCardPositionFrame = null;
 
-if (filterToggle && secondaryFilters) {
-  filterToggle.addEventListener('click', () => {
-    const nextExpanded = filterToggle.getAttribute('aria-expanded') !== 'true';
-    filterToggle.setAttribute('aria-expanded', String(nextExpanded));
-    secondaryFilters.hidden = !nextExpanded;
+function syncMarketplaceElements() {
+  marketplaceRoot = document.getElementById('marketplaceExperience');
+  filterForm = document.getElementById('filterForm');
+  filterToggle = document.getElementById('toggleFilters');
+  secondaryFilters = document.getElementById('secondaryFilters');
+  mapDataNode = document.getElementById('marketplace-map-data');
+  mapOverlayRoot = document.getElementById('marketplaceMapOverlays');
+  mapViewToggles = Array.from(document.querySelectorAll('[data-map-view]'));
+  mapStage = document.querySelector('.marketplace-map-stage');
+  mapLoadingTrack = mapStage ? mapStage.querySelector('.marketplace-map-loading-track') : null;
+  mapLoadingGradient = mapStage ? mapStage.querySelector('#marketplaceMapLoadingGradient') : null;
+  mapLoadingTrackPaths = mapStage ? Array.from(mapStage.querySelectorAll('.marketplace-map-loading-track__base, .marketplace-map-loading-track__color, .marketplace-map-loading-track__glow')) : [];
+
+  const mapData = mapDataNode ? JSON.parse(mapDataNode.textContent || '{}') : {};
+  mapPins = Array.isArray(mapData.pins) ? mapData.pins : [];
+  mapsApiKey = mapData.apiKey || '';
+  aiSearchActive = Boolean(mapData.aiSearchActive);
+}
+
+function syncMarketplaceLoadingTrackGeometry() {
+  if (!mapStage || !mapLoadingTrack || !mapLoadingTrackPaths.length) {
+    return;
+  }
+
+  const stageStyles = window.getComputedStyle(mapStage);
+  const strokeWidth = parseFloat(stageStyles.getPropertyValue('--marketplace-loading-stroke-width')) || 3.2;
+  const cornerRadius = parseFloat(stageStyles.getPropertyValue('--marketplace-loading-corner-radius')) || 20;
+  const width = Math.max(Math.ceil(mapStage.clientWidth + strokeWidth), 1);
+  const height = Math.max(Math.ceil(mapStage.clientHeight + strokeWidth), 1);
+  const inset = strokeWidth / 2;
+  const right = width - inset;
+  const bottom = height - inset;
+  const left = inset;
+  const top = inset;
+  const radius = Math.max(0, Math.min(cornerRadius, (width - strokeWidth) / 2, height - strokeWidth));
+  const verticalCornerStart = bottom - radius;
+  const horizontalCornerStart = right - radius;
+  const horizontalCornerEnd = left + radius;
+  const pathData = [
+    `M ${left} ${top}`,
+    `H ${right}`,
+    `V ${verticalCornerStart}`,
+    `Q ${right} ${bottom} ${horizontalCornerStart} ${bottom}`,
+    `H ${horizontalCornerEnd}`,
+    `Q ${left} ${bottom} ${left} ${verticalCornerStart}`,
+    `V ${top}`,
+  ].join(' ');
+
+  mapLoadingTrack.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  if (mapLoadingGradient) {
+    mapLoadingGradient.setAttribute('x1', '0');
+    mapLoadingGradient.setAttribute('y1', '0');
+    mapLoadingGradient.setAttribute('x2', String(width));
+    mapLoadingGradient.setAttribute('y2', '0');
+  }
+  mapLoadingTrackPaths.forEach(path => {
+    path.setAttribute('d', pathData);
+  });
+
+  const glowPath = mapStage.querySelector('.marketplace-map-loading-track__glow');
+  if (glowPath) {
+    const pathLength = glowPath.getTotalLength();
+    // 22% arc = wider, softer expansion feel; gap = remainder for seamless loop
+    const runnerLength = Math.max(pathLength * 0.22, 80);
+    const gapLength = Math.max(pathLength - runnerLength, 1);
+    glowPath.style.strokeDasharray = `${runnerLength} ${gapLength}`;
+    glowPath.dataset.pathLength = String(pathLength);
+    glowPath.style.setProperty('--marketplace-loading-path-length', String(pathLength));
+    glowPath.style.strokeDashoffset = '0';
+    const colorPath = mapStage.querySelector('.marketplace-map-loading-track__color');
+    if (colorPath) {
+      colorPath.style.strokeDasharray = `${runnerLength} ${gapLength}`;
+      colorPath.dataset.pathLength = String(pathLength);
+      colorPath.style.strokeDashoffset = '0';
+    }
+  }
+}
+
+const AI_STATUS_BASE_MESSAGES = [
+  'Scanning all registered CBOs\u2026',
+  'Analyzing community feedback\u2026',
+  'Measuring community involvement\u2026',
+  'Evaluating financial projections\u2026',
+  'Reviewing operational health\u2026',
+  'Assessing impact scores\u2026',
+  'Comparing partner networks\u2026',
+  'Mapping geographic coverage\u2026',
+  'Reviewing community ratings\u2026',
+  'Ranking results by relevance\u2026',
+];
+
+function buildAiStatusMessages(query) {
+  const extra = [];
+  if (/farm|agri|crop|livestock|seed/i.test(query)) {
+    extra.push('Finding farming-based CBOs\u2026', 'Analyzing agricultural impact\u2026');
+  }
+  if (/health|medic|clinic|hospital|nurs/i.test(query)) {
+    extra.push('Scanning community health CBOs\u2026', 'Reviewing health service records\u2026');
+  }
+  if (/water|sanit|hygien/i.test(query)) {
+    extra.push('Locating water \u0026 sanitation CBOs\u2026', 'Reviewing clean water access data\u2026');
+  }
+  if (/school|educat|learn|youth|child|literacy/i.test(query)) {
+    extra.push('Finding education-focused CBOs\u2026', 'Analyzing literacy \u0026 learning outcomes\u2026');
+  }
+  if (/tool|equipment|rental|hardware/i.test(query)) {
+    extra.push('Searching tool rental programmes\u2026', 'Reviewing equipment access data\u2026');
+  }
+  if (/environment|climate|tree|forest|conservation/i.test(query)) {
+    extra.push('Scanning environmental CBOs\u2026', 'Reviewing conservation impact\u2026');
+  }
+  if (/women|gender|girl|female/i.test(query)) {
+    extra.push('Finding women-led organisations\u2026', 'Measuring gender inclusion metrics\u2026');
+  }
+  if (/financ|revenue|income|fund|invest/i.test(query)) {
+    extra.push('Analyzing financial projections\u2026', 'Reviewing revenue streams\u2026');
+  }
+  if (/impact|community/i.test(query)) {
+    extra.push('Measuring community impact scores\u2026', 'Reviewing grassroots initiatives\u2026');
+  }
+  return [...new Set([...extra, ...AI_STATUS_BASE_MESSAGES])];
+}
+
+function startAiStatusMessages(query) {
+  const bar = document.getElementById('aiSearchStatusBar');
+  const textEl = document.getElementById('aiSearchStatusText');
+  if (!bar || !textEl) return;
+  stopAiStatusMessages();
+  const messages = buildAiStatusMessages(query || '');
+  let index = 0;
+  bar.hidden = false;
+  textEl.textContent = messages[0];
+  textEl.style.opacity = '1';
+  aiStatusInterval = setInterval(() => {
+    textEl.style.opacity = '0';
+    setTimeout(() => {
+      index = (index + 1) % messages.length;
+      textEl.textContent = messages[index];
+      textEl.style.opacity = '1';
+    }, 350);
+  }, 2600);
+}
+
+function stopAiStatusMessages() {
+  if (aiStatusInterval) {
+    clearInterval(aiStatusInterval);
+    aiStatusInterval = null;
+  }
+  const bar = document.getElementById('aiSearchStatusBar');
+  if (bar) bar.hidden = true;
+}
+
+function stopMarketplaceLoadingRunner(resetOffset = true) {
+  if (mapLoadingRunnerFrameId) {
+    window.cancelAnimationFrame(mapLoadingRunnerFrameId);
+    mapLoadingRunnerFrameId = 0;
+  }
+
+  if (!resetOffset || !mapStage) {
+    return;
+  }
+
+  const glowPath = mapStage.querySelector('.marketplace-map-loading-track__glow');
+  if (glowPath) glowPath.style.strokeDashoffset = '0';
+  const colorPath2 = mapStage.querySelector('.marketplace-map-loading-track__color');
+  if (colorPath2) colorPath2.style.strokeDashoffset = '0';
+}
+
+function startMarketplaceLoadingRunner() {
+  if (!mapStage) {
+    return;
+  }
+
+  const glowPath = mapStage.querySelector('.marketplace-map-loading-track__glow');
+  const colorPath = mapStage.querySelector('.marketplace-map-loading-track__color');
+  if (!glowPath) {
+    return;
+  }
+
+  const pathLength = Number(glowPath.dataset.pathLength || '0');
+  if (!Number.isFinite(pathLength) || pathLength <= 0) {
+    return;
+  }
+
+  stopMarketplaceLoadingRunner(false);
+  const duration = 4000;
+  mapLoadingRunnerStartTime = window.performance.now();
+
+  const tick = now => {
+    if (!mapStage || !mapStage.classList.contains('is-analyzing')) {
+      stopMarketplaceLoadingRunner();
+      return;
+    }
+
+    const offset = String(-pathLength * (((now - mapLoadingRunnerStartTime) % duration) / duration));
+    glowPath.style.strokeDashoffset = offset;
+    if (colorPath) colorPath.style.strokeDashoffset = offset;
+    mapLoadingRunnerFrameId = window.requestAnimationFrame(tick);
+  };
+
+  mapLoadingRunnerFrameId = window.requestAnimationFrame(tick);
+}
+
+function hydrateScoreBars(root = document) {
+  root.querySelectorAll('.score-bar-mini[data-score]').forEach(el => {
+    el.style.width = el.dataset.score + '%';
   });
 }
 
-document.querySelectorAll('.score-bar-mini[data-score]').forEach(el => {
-  el.style.width = el.dataset.score + '%';
-});
+function setFilterDrawerExpanded(expanded) {
+  if (!filterToggle || !secondaryFilters) {
+    return;
+  }
+
+  filterToggle.setAttribute('aria-expanded', String(expanded));
+  secondaryFilters.hidden = !expanded;
+}
+
+function bindMarketplaceControls() {
+  if (filterToggle && secondaryFilters) {
+    filterToggle.addEventListener('click', () => {
+      const nextExpanded = filterToggle.getAttribute('aria-expanded') !== 'true';
+      setFilterDrawerExpanded(nextExpanded);
+    });
+  }
+
+  if (filterForm) {
+    filterForm.addEventListener('submit', handleMarketplaceSearchSubmit);
+  }
+
+  mapViewToggles.forEach(button => {
+    button.addEventListener('click', () => setMapView(button.dataset.mapView || 'terrain'));
+  });
+
+  setMapView(marketplaceViewMode);
+}
 
 function escapeHtml(value) {
   return String(value || '')
@@ -366,30 +525,168 @@ function renderChipList(values, className) {
   return `<div class="${className}">${values.map(value => `<span>${escapeHtml(value)}</span>`).join('')}</div>`;
 }
 
-function closeHoverInfoWindow() {
+function currentMarketplaceQuery() {
+  const queryInput = document.getElementById('q');
+  return queryInput ? String(queryInput.value || '').trim() : '';
+}
+
+function renderHoverCardAiList(values, title, className) {
+  if (!values || !values.length) {
+    return '';
+  }
+  return `
+    <div class="${className}">
+      <span class="map-hover-card__ai-subtitle">${escapeHtml(title)}</span>
+      <ul>
+        ${values.map(value => `<li>${escapeHtml(value)}</li>`).join('')}
+      </ul>
+    </div>
+  `;
+}
+
+function renderHoverCardAiSuggestions(values) {
+  if (!values || !values.length) {
+    return '';
+  }
+  return `
+    <div class="map-hover-card__ai-suggestions-wrap">
+      <span class="map-hover-card__ai-subtitle">Try next</span>
+      <div class="map-hover-card__ai-suggestions">
+        ${values.map(value => `<button type="button" class="map-hover-card__ai-suggestion" data-cbo-ai-suggestion="${escapeHtml(value)}">${escapeHtml(value)}</button>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderHoverCardAiResponse(payload) {
+  return `
+    <div class="map-hover-card__ai-response-copy">${escapeHtml(payload.answer || '')}</div>
+    ${renderHoverCardAiList(payload.evidence || [], 'Evidence used', 'map-hover-card__ai-list')}
+    ${renderHoverCardAiList(payload.data_gaps || [], 'Still unclear', 'map-hover-card__ai-list map-hover-card__ai-list--muted')}
+    ${renderHoverCardAiSuggestions(payload.suggested_follow_ups || [])}
+  `;
+}
+
+function setHoverCardAiStatus(statusNode, message, tone) {
+  if (!statusNode) {
+    return;
+  }
+  const text = String(message || '').trim();
+  if (!text) {
+    statusNode.hidden = true;
+    statusNode.textContent = '';
+    statusNode.dataset.tone = '';
+    return;
+  }
+  statusNode.hidden = false;
+  statusNode.textContent = text;
+  statusNode.dataset.tone = tone || 'neutral';
+}
+
+function bindHoverCardAiPanel(element, pin) {
+  const form = element.querySelector('[data-cbo-ai-form]');
+  const input = element.querySelector('[data-cbo-ai-input]');
+  const submit = element.querySelector('[data-cbo-ai-submit]');
+  const status = element.querySelector('[data-cbo-ai-status]');
+  const answer = element.querySelector('[data-cbo-ai-answer]');
+  if (!form || !input || !submit || !status || !answer || !pin.ai_followup_url) {
+    return;
+  }
+
+  answer.addEventListener('click', event => {
+    const suggestion = event.target.closest('[data-cbo-ai-suggestion]');
+    if (!suggestion || !input) {
+      return;
+    }
+    input.value = suggestion.dataset.cboAiSuggestion || '';
+    form.requestSubmit();
+  });
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const question = String(input.value || '').trim();
+    if (!question) {
+      setHoverCardAiStatus(status, 'Ask a specific question about this CBO.', 'error');
+      answer.hidden = true;
+      answer.innerHTML = '';
+      return;
+    }
+
+    input.disabled = true;
+    submit.disabled = true;
+    setHoverCardAiStatus(status, 'Thinking through the full CBO record...', 'loading');
+    answer.hidden = true;
+    answer.innerHTML = '';
+
+    try {
+      const response = await fetch(pin.ai_followup_url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          question,
+          marketplace_query: currentMarketplaceQuery(),
+          match_context: {
+            ai_score: pin.ai_score || 0,
+            reasons: pin.ai_reasons || [],
+            overview: pin.ai_overview || '',
+            ai_search_active: aiSearchActive,
+          },
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error && !/ai/i.test(payload.error) ? payload.error : 'That question could not be answered right now.');
+      }
+      if (!element.isConnected) {
+        return;
+      }
+      answer.innerHTML = renderHoverCardAiResponse(payload);
+      answer.hidden = false;
+      setHoverCardAiStatus(status, '', 'neutral');
+    } catch (error) {
+      if (!element.isConnected) {
+        return;
+      }
+      setHoverCardAiStatus(status, error.message || 'That question could not be answered right now.', 'error');
+    } finally {
+      if (!element.isConnected) {
+        return;
+      }
+      input.disabled = false;
+      submit.disabled = false;
+    }
+  });
+}
+
+function cancelHoverCardClose() {
   if (hoverCloseTimeout) {
     window.clearTimeout(hoverCloseTimeout);
     hoverCloseTimeout = null;
   }
-  if (hoverInfoWindow) {
-    hoverInfoWindow.close();
-  }
 }
 
-function scheduleHoverInfoWindowClose() {
-  if (hoverCloseTimeout) {
-    window.clearTimeout(hoverCloseTimeout);
+function closeHoverCard() {
+  cancelHoverCardClose();
+  if (hoverCardState && hoverCardState.element) {
+    hoverCardState.element.remove();
   }
+  hoverCardState = null;
+}
+
+function scheduleHoverCardClose() {
+  cancelHoverCardClose();
   hoverCloseTimeout = window.setTimeout(() => {
-    if (hoverInfoWindow) {
-      hoverInfoWindow.close();
-    }
+    closeHoverCard();
   }, 180);
 }
 
-function buildHoverInfoWindowContent(pin) {
+function buildHoverCardContent(pin) {
   const primaryScore = aiSearchActive && pin.ai_score
-    ? `${pin.ai_score}/100 AI match`
+    ? `${pin.ai_score}/100 search match`
     : `${pin.score || 0}/100 impact score`;
   const ratingText = pin.avg_rating !== null && pin.avg_rating !== undefined
     ? `${pin.avg_rating}/10 community rating`
@@ -401,8 +698,27 @@ function buildHoverInfoWindowContent(pin) {
 
   return `
     <article class="map-hover-card">
-      <div class="map-hover-card__eyebrow">${escapeHtml(primaryScore)}</div>
-      <h4 class="map-hover-card__title">${escapeHtml(pin.name)}</h4>
+      <div class="map-hover-card__top">
+        <div>
+          <div class="map-hover-card__eyebrow">${escapeHtml(primaryScore)}</div>
+          <h4 class="map-hover-card__title">${escapeHtml(pin.name)}</h4>
+        </div>
+        ${pin.can_save ? `
+          <div class="save-cbo-region map-hover-card__save-group" data-save-cbo-region>
+            <button
+              type="button"
+              class="save-cbo-button save-cbo-button--warm save-cbo-button--compact"
+              data-save-cbo-button
+              data-cbo-slug="${escapeHtml(pin.slug || '')}"
+              data-save-cbo-url="${escapeHtml(pin.save_toggle_url || '')}"
+              data-unsaved-label="Save"
+              data-saved-label="Saved"
+              data-saved="${pin.saved_by_viewer ? 'true' : 'false'}"
+              aria-pressed="${pin.saved_by_viewer ? 'true' : 'false'}"
+            ><i class="${pin.saved_by_viewer ? 'fas' : 'far'} fa-bookmark"></i><span>${pin.saved_by_viewer ? 'Saved' : 'Save'}</span></button>
+          </div>
+        ` : ''}
+      </div>
       <p class="map-hover-card__location">${escapeHtml(pin.formatted_address || pin.location || 'Location TBD')}</p>
       <p class="map-hover-card__overview">${escapeHtml(overview)}</p>
       <div class="map-hover-card__meta">
@@ -410,24 +726,48 @@ function buildHoverInfoWindowContent(pin) {
         <span>${escapeHtml(revenueText)}</span>
       </div>
       ${renderChipList((pin.focus_areas || []).slice(0, 3), 'map-hover-card__chips')}
+      ${pin.profile_url ? `<a href="${escapeHtml(pin.profile_url)}" class="map-hover-card__profile-btn">View Full Profile <i class="fas fa-arrow-right"></i></a>` : ''}
+      <section class="map-hover-card__ai-section">
+        <div class="map-hover-card__ai-header">
+          <span class="map-hover-card__ai-kicker">Follow-up question</span>
+        </div>
+        <form class="map-hover-card__ai-form" data-cbo-ai-form>
+          <input
+            type="text"
+            class="map-hover-card__ai-input"
+            data-cbo-ai-input
+            placeholder="Ask about finances, leadership, reviews, or growth"
+          >
+          <button type="submit" class="map-hover-card__ai-submit" data-cbo-ai-submit>Ask</button>
+        </form>
+        <div class="map-hover-card__ai-status" data-cbo-ai-status hidden></div>
+        <div class="map-hover-card__ai-answer" data-cbo-ai-answer hidden></div>
+      </section>
     </article>
   `;
 }
 
-function openHoverInfoWindow(pin, marker) {
-  if (!hoverInfoWindow || !marker) {
+function openHoverCard(pin, marker) {
+  if (!mapOverlayRoot || !marker) {
     return;
   }
-  if (hoverCloseTimeout) {
-    window.clearTimeout(hoverCloseTimeout);
-    hoverCloseTimeout = null;
-  }
-  hoverInfoWindow.setContent(buildHoverInfoWindowContent(pin));
-  hoverInfoWindow.open({
-    anchor: marker,
-    map: marketplaceMapInstance,
-    shouldFocus: false,
-  });
+
+  cancelHoverCardClose();
+  closeHoverCard();
+
+  const element = document.createElement('div');
+  element.className = 'map-hover-card-shell map-hover-card-shell--right';
+  element.innerHTML = buildHoverCardContent(pin);
+  element.addEventListener('mouseenter', cancelHoverCardClose);
+  element.addEventListener('mouseleave', scheduleHoverCardClose);
+  mapOverlayRoot.appendChild(element);
+  bindHoverCardAiPanel(element, pin);
+
+  hoverCardState = {
+    element,
+    marker,
+  };
+  updateHoverCardPosition();
 }
 
 function openCboMapModal(pin) {
@@ -451,6 +791,23 @@ function openCboMapModal(pin) {
   mapModalTitle.textContent = pin.name || 'CBO Profile';
   mapModalSubtitle.textContent = pin.formatted_address || pin.location || '';
   mapModalBody.innerHTML = `
+    ${pin.can_save ? `
+      <div class="map-modal__top-actions">
+        <div class="save-cbo-region" data-save-cbo-region>
+          <button
+            type="button"
+            class="save-cbo-button save-cbo-button--warm"
+            data-save-cbo-button
+            data-cbo-slug="${escapeHtml(pin.slug || '')}"
+            data-save-cbo-url="${escapeHtml(pin.save_toggle_url || '')}"
+            data-unsaved-label="Save"
+            data-saved-label="Saved"
+            data-saved="${pin.saved_by_viewer ? 'true' : 'false'}"
+            aria-pressed="${pin.saved_by_viewer ? 'true' : 'false'}"
+          ><i class="${pin.saved_by_viewer ? 'fas' : 'far'} fa-bookmark"></i><span>${pin.saved_by_viewer ? 'Saved' : 'Save'}</span></button>
+        </div>
+      </div>
+    ` : ''}
     <div class="map-modal__stats">
       <div>
         <strong>${escapeHtml(String(pin.score || 0))}/100</strong>
@@ -488,10 +845,32 @@ function openCboMapModal(pin) {
     <div class="map-modal__actions">
       <a href="${escapeHtml(pin.profile_url)}" class="btn btn-primary">Open Full Profile</a>
     </div>
+
+    ${pin.ai_followup_url ? `
+    <section class="map-modal__ai-section map-hover-card__ai-section">
+      <div class="map-hover-card__ai-header">
+        <span class="map-hover-card__ai-kicker">Follow-up question</span>
+      </div>
+      <form class="map-hover-card__ai-form" data-cbo-ai-form>
+        <input
+          type="text"
+          class="map-hover-card__ai-input"
+          data-cbo-ai-input
+          placeholder="Ask about finances, leadership, reviews, or growth"
+        >
+        <button type="submit" class="map-hover-card__ai-submit" data-cbo-ai-submit>Ask</button>
+      </form>
+      <div class="map-hover-card__ai-status" data-cbo-ai-status hidden></div>
+      <div class="map-hover-card__ai-answer" data-cbo-ai-answer hidden></div>
+    </section>
+    ` : ''}
   `;
 
   mapModal.hidden = false;
   document.body.classList.add('modal-open');
+  if (pin.ai_followup_url) {
+    bindHoverCardAiPanel(mapModalBody, pin);
+  }
 }
 
 function closeCboMapModal() {
@@ -511,84 +890,165 @@ document.addEventListener('keydown', event => {
     closeCboMapModal();
   }
   if (event.key === 'Escape' && filterToggle && secondaryFilters && !secondaryFilters.hidden) {
-    filterToggle.setAttribute('aria-expanded', 'false');
-    secondaryFilters.hidden = true;
+    setFilterDrawerExpanded(false);
   }
 });
 
-function markerColor(pin) {
-  if ((pin.ai_score || 0) >= 70) {
-    return '#0f766e';
+document.addEventListener('saved-cbo:changed', event => {
+  const slug = event.detail?.slug;
+  const saved = Boolean(event.detail?.saved);
+  if (!slug) {
+    return;
   }
-  if ((pin.ai_score || 0) >= 40) {
-    return '#d97706';
-  }
+
+  mapMarkers.forEach(item => {
+    if (item?.pin?.slug === slug) {
+      item.pin.saved_by_viewer = saved;
+    }
+  });
+});
+
+function markerColor() {
   return '#155e75';
 }
 
-function markerScale(pin, isActive = false) {
-  if (isActive) {
-    return 13;
-  }
-  if ((pin.ai_score || 0) >= 70) {
-    return 11;
-  }
-  return 9;
+function markerScale() {
+  return 10;
 }
 
 function clearAnalysisCards() {
-  analysisCards.forEach(card => card.remove());
+  analysisCards.forEach(item => {
+    if (item && item.labelMarker) {
+      item.labelMarker.setMap(null);
+    }
+    if (item && item.element) {
+      item.element.remove();
+    }
+  });
   analysisCards = [];
 }
 
-function chooseAnalysisCardPlacement(pointX, pointY, cardWidth, cardHeight, overlayWidth, overlayHeight) {
-  const gap = 20;
-  const margin = 12;
-  const placements = [
-    {
+function clampToRange(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function rectanglesIntersect(rectA, rectB) {
+  return rectA.x < rectB.x + rectB.width
+    && rectA.x + rectA.width > rectB.x
+    && rectA.y < rectB.y + rectB.height
+    && rectA.y + rectA.height > rectB.y;
+}
+
+function getMapToolbarAvoidRects(padding = 12) {
+  if (!mapOverlayRoot || !mapStage) {
+    return [];
+  }
+
+  const overlayRect = mapOverlayRoot.getBoundingClientRect();
+  return Array.from(mapStage.querySelectorAll('.marketplace-map-toolbar > *'))
+    .map(node => {
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) {
+        return null;
+      }
+
+      const x = clampToRange(rect.left - overlayRect.left - padding, 0, overlayRect.width);
+      const y = clampToRange(rect.top - overlayRect.top - padding, 0, overlayRect.height);
+      const right = clampToRange(rect.right - overlayRect.left + padding, 0, overlayRect.width);
+      const bottom = clampToRange(rect.bottom - overlayRect.top + padding, 0, overlayRect.height);
+
+      return {
+        x,
+        y,
+        width: Math.max(0, right - x),
+        height: Math.max(0, bottom - y),
+      };
+    })
+    .filter(rect => rect && rect.width > 0 && rect.height > 0);
+}
+
+function chooseOverlayCardPlacement(pointX, pointY, cardWidth, cardHeight, overlayWidth, overlayHeight, options = {}) {
+  const gap = options.gap ?? 20;
+  const margin = options.margin ?? 12;
+  const order = options.order || ['right', 'left', 'top', 'bottom'];
+  const avoidRects = Array.isArray(options.avoidRects) ? options.avoidRects : [];
+  const placements = {
+    right: {
       anchor: 'right',
       x: pointX + gap,
       y: pointY - (cardHeight / 2),
       fits: pointX + gap + cardWidth <= overlayWidth - margin,
     },
-    {
+    left: {
       anchor: 'left',
       x: pointX - gap - cardWidth,
       y: pointY - (cardHeight / 2),
       fits: pointX - gap - cardWidth >= margin,
     },
-    {
+    top: {
       anchor: 'top',
       x: pointX - (cardWidth / 2),
       y: pointY - gap - cardHeight,
       fits: pointY - gap - cardHeight >= margin,
     },
-    {
+    bottom: {
       anchor: 'bottom',
       x: pointX - (cardWidth / 2),
       y: pointY + gap,
       fits: pointY + gap + cardHeight <= overlayHeight - margin,
     },
-  ];
+  };
 
-  const selected = placements.find(option => option.fits) || placements[0];
+  const candidates = order
+    .map(anchor => placements[anchor])
+    .filter(Boolean)
+    .map(option => {
+      const x = clampToRange(option.x, margin, Math.max(margin, overlayWidth - cardWidth - margin));
+      const y = clampToRange(option.y, margin, Math.max(margin, overlayHeight - cardHeight - margin));
+      const blocked = avoidRects.some(rect => rectanglesIntersect(
+        { x, y, width: cardWidth, height: cardHeight },
+        rect,
+      ));
+
+      return {
+        ...option,
+        x,
+        y,
+        blocked,
+      };
+    });
+
+  const selected = candidates.find(option => option.fits && !option.blocked)
+    || candidates.find(option => !option.blocked)
+    || candidates.find(option => option.fits)
+    || candidates[0]
+    || placements[order[0]]
+    || placements.right;
+  const tipInset = 24;
+
+  let tipOffset = '50%';
+  if (selected.anchor === 'right' || selected.anchor === 'left') {
+    tipOffset = `${clampToRange(pointY - selected.y, tipInset, Math.max(tipInset, cardHeight - tipInset))}px`;
+  } else {
+    tipOffset = `${clampToRange(pointX - selected.x, tipInset, Math.max(tipInset, cardWidth - tipInset))}px`;
+  }
+
   return {
     anchor: selected.anchor,
-    x: Math.min(Math.max(selected.x, margin), Math.max(margin, overlayWidth - cardWidth - margin)),
-    y: Math.min(Math.max(selected.y, margin), Math.max(margin, overlayHeight - cardHeight - margin)),
+    x: selected.x,
+    y: selected.y,
+    tipOffset,
   };
 }
 
-function updateAnalysisCardPositions() {
-  if (!marketplaceMapInstance || !analysisCards.length || !window.google || !window.google.maps) {
+function updateHoverCardPosition() {
+  if (!marketplaceMapInstance || !hoverCardState || !mapOverlayRoot || !window.google || !window.google.maps) {
     return;
   }
+
   const projection = marketplaceMapInstance.getProjection();
-  if (!projection) {
-    return;
-  }
   const bounds = marketplaceMapInstance.getBounds();
-  if (!bounds) {
+  if (!projection || !bounds) {
     return;
   }
 
@@ -596,44 +1056,226 @@ function updateAnalysisCardPositions() {
   const southWest = projection.fromLatLngToPoint(bounds.getSouthWest());
   const zoom = marketplaceMapInstance.getZoom();
   const scale = Math.pow(2, zoom);
-  const overlayWidth = mapOverlayRoot ? mapOverlayRoot.clientWidth : 0;
-  const overlayHeight = mapOverlayRoot ? mapOverlayRoot.clientHeight : 0;
+  const overlayWidth = mapOverlayRoot.clientWidth;
+  const overlayHeight = mapOverlayRoot.clientHeight;
+  const point = projection.fromLatLngToPoint(hoverCardState.marker.getPosition());
+  const x = (point.x - southWest.x) * scale;
+  const y = (point.y - northEast.y) * scale;
+  const cardWidth = hoverCardState.element.offsetWidth || 320;
+  const cardHeight = hoverCardState.element.offsetHeight || 220;
+  const avoidRects = getMapToolbarAvoidRects(10);
+  const placement = chooseOverlayCardPlacement(
+    x,
+    y,
+    cardWidth,
+    cardHeight,
+    overlayWidth,
+    overlayHeight,
+    {
+      gap: 18,
+      margin: 14,
+      order: ['right', 'left', 'bottom', 'top'],
+      avoidRects,
+    }
+  );
 
-  analysisCards.forEach(item => {
-    const point = projection.fromLatLngToPoint(item.marker.getPosition());
-    const x = (point.x - southWest.x) * scale;
-    const y = (point.y - northEast.y) * scale;
-    const cardWidth = item.element.offsetWidth || 190;
-    const cardHeight = item.element.offsetHeight || 64;
-    const placement = chooseAnalysisCardPlacement(x, y, cardWidth, cardHeight, overlayWidth, overlayHeight);
-    item.element.className = `map-analysis-card map-analysis-card--${placement.anchor}`;
-    item.element.style.transform = `translate(${placement.x}px, ${placement.y}px)`;
+  hoverCardState.element.className = `map-hover-card-shell map-hover-card-shell--${placement.anchor}`;
+  hoverCardState.element.style.transform = `translate(${placement.x}px, ${placement.y}px)`;
+  hoverCardState.element.style.setProperty('--map-hover-arrow-offset', placement.tipOffset);
+}
+
+function scheduleAnalysisCardPositionUpdate() {
+  if (analysisCardPositionFrame !== null) {
+    return;
+  }
+
+  analysisCardPositionFrame = window.requestAnimationFrame(() => {
+    analysisCardPositionFrame = null;
+    updateAnalysisCardPositions();
   });
 }
 
+function updateAnalysisCardPositions() {
+  const zoom = marketplaceMapInstance ? (marketplaceMapInstance.getZoom() || 0) : 0;
+  const labelsVisible = zoom >= ANALYSIS_LABEL_MIN_ZOOM;
+
+  if (!marketplaceMapInstance || !mapOverlayRoot || !window.google || !window.google.maps) {
+    updateHoverCardPosition();
+    return;
+  }
+
+  const projection = marketplaceMapInstance.getProjection();
+  const bounds = marketplaceMapInstance.getBounds();
+  if (!projection || !bounds) {
+    updateHoverCardPosition();
+    return;
+  }
+
+  const northEast = projection.fromLatLngToPoint(bounds.getNorthEast());
+  const southWest = projection.fromLatLngToPoint(bounds.getSouthWest());
+  const scale = Math.pow(2, zoom);
+  const overlayWidth = mapOverlayRoot.clientWidth;
+  const overlayHeight = mapOverlayRoot.clientHeight;
+  const usedRects = getMapToolbarAvoidRects(12);
+
+  analysisCards.forEach(item => {
+    if (!item || !item.element || !item.marker) {
+      return;
+    }
+
+    item.element.hidden = !labelsVisible;
+    if (!labelsVisible) {
+      return;
+    }
+
+    const point = projection.fromLatLngToPoint(item.marker.getPosition());
+    const x = (point.x - southWest.x) * scale;
+    const y = (point.y - northEast.y) * scale;
+    const labelWidth = item.element.offsetWidth || 180;
+    const labelHeight = item.element.offsetHeight || 24;
+    const preferredOrder = x <= overlayWidth / 2 ? ['right', 'left'] : ['left', 'right'];
+    const placement = chooseOverlayCardPlacement(
+      x,
+      y,
+      labelWidth,
+      labelHeight,
+      overlayWidth,
+      overlayHeight,
+      {
+        gap: 18,
+        margin: 14,
+        order: preferredOrder,
+        avoidRects: usedRects,
+      }
+    );
+
+    item.element.className = `map-analysis-card map-analysis-card--${placement.anchor}`;
+    item.element.style.transform = `translate(${placement.x}px, ${placement.y}px)`;
+    usedRects.push({
+      x: placement.x,
+      y: placement.y,
+      width: labelWidth,
+      height: labelHeight,
+    });
+  });
+
+  updateHoverCardPosition();
+}
+
 function buildAnalysisCard(pin, marker) {
-  if (!mapOverlayRoot) {
+  if (!marketplaceMapInstance || !mapOverlayRoot) {
     return;
   }
 
   const element = document.createElement('div');
   element.className = 'map-analysis-card map-analysis-card--right';
+  element.hidden = (marketplaceMapInstance.getZoom() || 0) < ANALYSIS_LABEL_MIN_ZOOM;
   element.innerHTML = `
-    <button type="button" class="map-analysis-card__body" aria-label="Open ${escapeHtml(pin.name)} profile preview">
-      <strong>${escapeHtml(pin.name)}</strong>
+    <button type="button" class="map-analysis-card__body" aria-label="Open ${escapeHtml(pin.name)}">
+      <span>${escapeHtml(pin.name)}</span>
     </button>
-    <a class="map-analysis-card__expand" href="${escapeHtml(pin.profile_url)}" aria-label="Open full profile for ${escapeHtml(pin.name)}">
-      <i class="fas fa-expand-alt"></i>
-    </a>
   `;
 
-  element.querySelector('.map-analysis-card__body').addEventListener('click', () => {
-    window.location.href = pin.profile_url;
+  const trigger = element.querySelector('.map-analysis-card__body');
+  trigger.addEventListener('mouseenter', () => openHoverCard(pin, marker));
+  trigger.addEventListener('mouseleave', scheduleHoverCardClose);
+  trigger.addEventListener('click', () => {
+    closeHoverCard();
+    openCboMapModal(pin);
   });
+
   mapOverlayRoot.appendChild(element);
+
   analysisCards.push({
     element,
     marker,
+  });
+}
+
+async function tightenMapFocus(shortlisted, options = {}) {
+  if (!marketplaceMapInstance || !shortlisted.length || !window.google || !window.google.maps) {
+    return;
+  }
+
+  const mapElement = document.getElementById('marketplaceMap');
+  if (!mapElement) {
+    return;
+  }
+
+  const targetMargin = options.targetMargin ?? 112;
+  const minimumMargin = options.minimumMargin ?? 84;
+  const minimumStartMargin = options.minimumStartMargin ?? minimumMargin;
+  const maxExtraZoom = options.maxExtraZoom ?? 2;
+  const maxZoom = options.maxZoom ?? 11;
+  const forceZoomSteps = Math.max(0, options.forceZoomSteps ?? 0);
+  const projection = marketplaceMapInstance.getProjection();
+  const bounds = marketplaceMapInstance.getBounds();
+  if (!projection || !bounds) {
+    return;
+  }
+
+  const currentZoom = marketplaceMapInstance.getZoom() || 0;
+  const width = mapElement.clientWidth;
+  const height = mapElement.clientHeight;
+  if (width < 1 || height < 1) {
+    return;
+  }
+
+  const northEast = projection.fromLatLngToPoint(bounds.getNorthEast());
+  const southWest = projection.fromLatLngToPoint(bounds.getSouthWest());
+  const scale = Math.pow(2, currentZoom);
+  const centerX = width / 2;
+  const centerY = height / 2;
+
+  const markerPoints = shortlisted.map(item => {
+    const point = projection.fromLatLngToPoint(item.marker.getPosition());
+    return {
+      x: (point.x - southWest.x) * scale,
+      y: (point.y - northEast.y) * scale,
+    };
+  });
+
+  const marginsForPoints = points => points.map(point => (
+    Math.min(point.x, width - point.x, point.y, height - point.y)
+  ));
+
+  const zoomPointsInOneStep = points => points.map(point => ({
+    x: centerX + ((point.x - centerX) * 2),
+    y: centerY + ((point.y - centerY) * 2),
+  }));
+  let simulatedPoints = markerPoints;
+  let appliedSteps = 0;
+
+  for (let step = 0; step < maxExtraZoom; step += 1) {
+    if ((currentZoom + appliedSteps) >= maxZoom) {
+      break;
+    }
+
+    const margins = marginsForPoints(simulatedPoints);
+    const smallestMargin = Math.min(...margins);
+    const requireOnlySafeStartMargin = step < forceZoomSteps;
+    const requiredMargin = requireOnlySafeStartMargin ? minimumStartMargin : targetMargin;
+    if (!Number.isFinite(smallestMargin) || smallestMargin < requiredMargin) {
+      break;
+    }
+
+    const nextPoints = zoomPointsInOneStep(simulatedPoints);
+    const nextMargins = marginsForPoints(nextPoints);
+    if (!nextMargins.length || Math.min(...nextMargins) < minimumMargin) {
+      break;
+    }
+
+    simulatedPoints = nextPoints;
+    appliedSteps += 1;
+  }
+
+  if (!appliedSteps) {
+    return;
+  }
+
+  marketplaceMapInstance.setZoom(currentZoom + appliedSteps);
+  await new Promise(resolve => {
+    google.maps.event.addListenerOnce(marketplaceMapInstance, 'idle', resolve);
   });
 }
 
@@ -642,95 +1284,101 @@ function resetMarkerStates() {
     item.marker.setAnimation(null);
     item.marker.setIcon({
       path: google.maps.SymbolPath.CIRCLE,
-      fillColor: markerColor(item.pin),
+      fillColor: markerColor(),
       fillOpacity: 1,
       strokeColor: '#ffffff',
       strokeWeight: 2,
-      scale: markerScale(item.pin),
+      scale: markerScale(),
     });
   });
 }
 
-async function runGeminiMapAnalysis() {
+function computeFitZoom(bounds, mapWidthPx, mapHeightPx, paddingPx) {
+  const ne = bounds.getNorthEast();
+  const sw = bounds.getSouthWest();
+
+  function latToRad(lat) {
+    const sin = Math.sin(lat * Math.PI / 180);
+    const radX2 = Math.log((1 + sin) / (1 - sin)) / 2;
+    return Math.max(Math.min(radX2, Math.PI), -Math.PI) / 2;
+  }
+
+  const latFraction = (latToRad(ne.lat()) - latToRad(sw.lat())) / Math.PI;
+  const lngDiff = ne.lng() - sw.lng();
+  const lngFraction = ((lngDiff < 0) ? (lngDiff + 360) : lngDiff) / 360;
+
+  const usableW = Math.max(1, mapWidthPx - paddingPx * 2);
+  const usableH = Math.max(1, mapHeightPx - paddingPx * 2);
+
+  const latZoom = latFraction > 0 ? Math.floor(Math.log(usableH / 256 / latFraction) / Math.LN2) : 21;
+  const lngZoom = lngFraction > 0 ? Math.floor(Math.log(usableW / 256 / lngFraction) / Math.LN2) : 21;
+
+  return Math.min(latZoom, lngZoom, 14);
+}
+
+function renderGeminiMapResults() {
   if (!aiSearchActive || !marketplaceMapInstance || mapMarkers.length === 0 || !mapOverlayRoot) {
     return;
   }
 
   clearAnalysisCards();
-  const mapStage = document.querySelector('.marketplace-map-stage');
-  if (!mapStage) {
-    return;
-  }
-
-  mapStage.classList.add('is-analyzing');
   resetMarkerStates();
 
   const rankedMarkers = [...mapMarkers].sort((left, right) => (right.pin.ai_score || 0) - (left.pin.ai_score || 0));
-  for (const item of rankedMarkers) {
-    item.marker.setAnimation(google.maps.Animation.BOUNCE);
-    item.marker.setIcon({
-      path: google.maps.SymbolPath.CIRCLE,
-      fillColor: '#06b6d4',
-      fillOpacity: 1,
-      strokeColor: '#ffffff',
-      strokeWeight: 2,
-      scale: 15,
-    });
-    await new Promise(resolve => setTimeout(resolve, 260));
-    item.marker.setAnimation(null);
-    item.marker.setIcon({
-      path: google.maps.SymbolPath.CIRCLE,
-      fillColor: markerColor(item.pin),
-      fillOpacity: 1,
-      strokeColor: '#ffffff',
-      strokeWeight: 2,
-      scale: markerScale(item.pin),
-    });
+  const shortlisted = rankedMarkers.slice(0, Math.min(6, rankedMarkers.length));
+  if (!shortlisted.length) {
+    return;
   }
 
-  const shortlisted = rankedMarkers.slice(0, Math.min(6, rankedMarkers.length));
-  if (shortlisted.length) {
-    const bounds = new google.maps.LatLngBounds();
-    shortlisted.forEach(item => bounds.extend(item.marker.getPosition()));
-    if (shortlisted.length === 1) {
-      marketplaceMapInstance.panTo(shortlisted[0].marker.getPosition());
-      marketplaceMapInstance.setZoom(12);
-    } else {
-      marketplaceMapInstance.fitBounds(bounds, 110);
-      await new Promise(resolve => {
-        google.maps.event.addListenerOnce(marketplaceMapInstance, 'idle', resolve);
-      });
-      marketplaceMapInstance.setZoom(Math.min(13, Math.max(11, marketplaceMapInstance.getZoom() + 1)));
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 260));
+  const finishRender = () => {
     shortlisted.forEach(item => {
-      item.marker.setIcon({
-        path: google.maps.SymbolPath.CIRCLE,
-        fillColor: '#14b8a6',
-        fillOpacity: 1,
-        strokeColor: '#ffffff',
-        strokeWeight: 2,
-        scale: 14,
-      });
       buildAnalysisCard(item.pin, item.marker);
     });
     updateAnalysisCardPositions();
+  };
+
+  const bounds = new google.maps.LatLngBounds();
+  shortlisted.forEach(item => bounds.extend(item.marker.getPosition()));
+
+  if (shortlisted.length === 1) {
+    marketplaceMapInstance.setCenter(shortlisted[0].marker.getPosition());
+    marketplaceMapInstance.setZoom(12);
+    google.maps.event.addListenerOnce(marketplaceMapInstance, 'idle', finishRender);
+    return;
   }
 
-  mapStage.classList.remove('is-analyzing');
+  // Trigger a resize so the map re-measures its container dimensions before
+  // fitBounds computes the zoom — critical after an AJAX DOM replacement.
+  google.maps.event.trigger(marketplaceMapInstance, 'resize');
+  marketplaceMapInstance.fitBounds(bounds, { top: 48, right: 48, bottom: 48, left: 48 });
+  google.maps.event.addListenerOnce(marketplaceMapInstance, 'idle', async () => {
+    try {
+      await tightenMapFocus(shortlisted, {
+        targetMargin: 48,
+        minimumMargin: 24,
+        minimumStartMargin: 36,
+        maxExtraZoom: 5,
+        maxZoom: 14,
+        forceZoomSteps: 1,
+      });
+    } finally {
+      finishRender();
+    }
+  });
 }
 
 function setMapView(mode) {
+  marketplaceViewMode = mode === 'satellite' ? 'satellite' : 'terrain';
+
   mapViewToggles.forEach(button => {
-    button.classList.toggle('is-active', button.dataset.mapView === mode);
+    button.classList.toggle('is-active', button.dataset.mapView === marketplaceViewMode);
   });
 
   if (!marketplaceMapInstance) {
     return;
   }
 
-  if (mode === 'satellite') {
+  if (marketplaceViewMode === 'satellite') {
     marketplaceMapInstance.setMapTypeId('satellite');
     return;
   }
@@ -738,11 +1386,124 @@ function setMapView(mode) {
   marketplaceMapInstance.setMapTypeId('terrain');
 }
 
-mapViewToggles.forEach(button => {
-  button.addEventListener('click', () => setMapView(button.dataset.mapView || 'terrain'));
-});
+function clearMarketplaceMapState() {
+  stopMarketplaceLoadingRunner();
+  closeHoverCard();
+  clearAnalysisCards();
+  mapMarkers.forEach(item => {
+    item.marker.setMap(null);
+  });
+  mapMarkers = [];
+  marketplaceMapInstance = null;
+}
 
-function initMarketplaceMap() {
+function setMarketplaceSubmissionState(isSubmitting, showAnalysis = false) {
+  if (filterForm) {
+    filterForm.dataset.pending = isSubmitting ? 'true' : 'false';
+    const submitButton = filterForm.querySelector('button[type="submit"]');
+    if (submitButton) {
+      submitButton.disabled = isSubmitting;
+    }
+  }
+
+  if (mapStage) {
+    const shouldAnalyze = Boolean(isSubmitting && showAnalysis);
+    mapStage.classList.toggle('is-analyzing', shouldAnalyze);
+    if (shouldAnalyze) {
+      startMarketplaceLoadingRunner();
+    } else {
+      stopMarketplaceLoadingRunner();
+    }
+  }
+}
+
+function buildMarketplaceSearchUrl(form) {
+  const url = new URL(form.action, window.location.origin);
+  const params = new URLSearchParams();
+
+  for (const [key, value] of new FormData(form).entries()) {
+    const normalizedValue = typeof value === 'string' ? value.trim() : value;
+    if (normalizedValue === '') {
+      continue;
+    }
+    params.append(key, normalizedValue);
+  }
+
+  url.search = params.toString();
+  return url;
+}
+
+async function handleMarketplaceSearchSubmit(event) {
+  event.preventDefault();
+  if (!filterForm || !marketplaceRoot) {
+    return;
+  }
+
+  const requestUrl = buildMarketplaceSearchUrl(filterForm);
+  const queryValue = String(new FormData(filterForm).get('q') || '').trim();
+
+  if (marketplaceRequestController) {
+    marketplaceRequestController.abort();
+  }
+
+  const controller = new AbortController();
+  marketplaceRequestController = controller;
+  closeHoverCard();
+  clearAnalysisCards();
+  setMarketplaceSubmissionState(true, Boolean(queryValue));
+  if (queryValue) {
+    startAiStatusMessages(queryValue);
+  }
+
+  try {
+    const response = await fetch(requestUrl.toString(), {
+      credentials: 'same-origin',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      signal: controller.signal,
+    });
+    const html = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`Marketplace request failed with status ${response.status}`);
+    }
+
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const nextRoot = parsed.getElementById('marketplaceExperience');
+    if (!nextRoot) {
+      window.location.assign(response.url || requestUrl.toString());
+      return;
+    }
+
+    if (parsed.title) {
+      document.title = parsed.title;
+    }
+
+    marketplaceRoot.replaceWith(nextRoot);
+    stopAiStatusMessages();
+
+    const nextUrl = response.url ? new URL(response.url, window.location.origin) : requestUrl;
+    window.history.replaceState({}, '', `${nextUrl.pathname}${nextUrl.search}`);
+
+    initializeMarketplaceExperience();
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      stopAiStatusMessages();
+      return;
+    }
+    console.error('Marketplace search request failed', error);
+    stopAiStatusMessages();
+    setMarketplaceSubmissionState(false);
+    window.location.assign(requestUrl.toString());
+  } finally {
+    if (marketplaceRequestController === controller) {
+      marketplaceRequestController = null;
+    }
+  }
+}
+
+function mountMarketplaceMap() {
   const mapElement = document.getElementById('marketplaceMap');
   if (!mapElement || !window.google || !window.google.maps) {
     return;
@@ -752,27 +1513,37 @@ function initMarketplaceMap() {
   const map = new google.maps.Map(mapElement, {
     center: kenyaCenter,
     zoom: 6,
-    mapTypeId: 'terrain',
+    mapTypeId: marketplaceViewMode,
     mapTypeControl: false,
     streetViewControl: false,
     fullscreenControl: false,
     clickableIcons: false,
   });
   marketplaceMapInstance = map;
-  hoverInfoWindow = new google.maps.InfoWindow({
-    disableAutoPan: true,
-    maxWidth: 320,
-    pixelOffset: new google.maps.Size(0, -10),
-  });
-  setMapView('terrain');
-  map.addListener('idle', updateAnalysisCardPositions);
-  map.addListener('dragstart', closeHoverInfoWindow);
-  map.addListener('zoom_changed', closeHoverInfoWindow);
-  map.addListener('click', closeHoverInfoWindow);
+  setMapView(marketplaceViewMode);
+  map.addListener('zoom_changed', scheduleAnalysisCardPositionUpdate);
+  map.addListener('idle', scheduleAnalysisCardPositionUpdate);
+  map.addListener('dragstart', closeHoverCard);
+  map.addListener('zoom_changed', closeHoverCard);
+  map.addListener('click', closeHoverCard);
 
   if (!mapPins.length) {
     return;
   }
+
+  const queueGeminiMapResultRender = () => {
+    if (!aiSearchActive) {
+      return;
+    }
+    let rendered = false;
+    const doRender = () => {
+      if (rendered) return;
+      rendered = true;
+      renderGeminiMapResults();
+    };
+    google.maps.event.addListenerOnce(map, 'idle', doRender);
+    setTimeout(doRender, 2000);
+  };
 
   const bounds = new google.maps.LatLngBounds();
   mapMarkers = [];
@@ -784,17 +1555,17 @@ function initMarketplaceMap() {
       title: pin.name,
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
-        fillColor: markerColor(pin),
+        fillColor: markerColor(),
         fillOpacity: 1,
         strokeColor: '#ffffff',
         strokeWeight: 2,
-        scale: markerScale(pin),
+        scale: markerScale(),
       },
     });
-    marker.addListener('mouseover', () => openHoverInfoWindow(pin, marker));
-    marker.addListener('mouseout', scheduleHoverInfoWindowClose);
+    marker.addListener('mouseover', () => openHoverCard(pin, marker));
+    marker.addListener('mouseout', scheduleHoverCardClose);
     marker.addListener('click', () => {
-      closeHoverInfoWindow();
+      closeHoverCard();
       openCboMapModal(pin);
     });
     mapMarkers.push({ pin, marker });
@@ -802,38 +1573,76 @@ function initMarketplaceMap() {
   });
 
   if (mapPins.length === 1) {
+    queueGeminiMapResultRender();
     map.setCenter(bounds.getCenter());
     map.setZoom(8);
     return;
   }
 
-  map.fitBounds(bounds, 64);
-
-  if (aiSearchActive) {
-    window.setTimeout(() => {
-      runGeminiMapAnalysis();
-    }, 350);
+  queueGeminiMapResultRender();
+  // When AI search is active, skip the all-pins fitBounds so the idle event
+  // fires immediately and renderGeminiMapResults can zoom to the top results.
+  if (!aiSearchActive) {
+    map.fitBounds(bounds, 64);
   }
 }
 
 function loadGoogleMaps() {
   if (!mapsApiKey || !document.getElementById('marketplaceMap')) {
-    return;
+    return Promise.resolve();
   }
 
   if (window.google && window.google.maps) {
-    initMarketplaceMap();
-    return;
+    mountMarketplaceMap();
+    return Promise.resolve();
   }
 
-  window.initMarketplaceMap = initMarketplaceMap;
-  const script = document.createElement('script');
-  script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(mapsApiKey)}&callback=initMarketplaceMap&v=weekly`;
-  script.async = true;
-  script.defer = true;
-  document.head.appendChild(script);
+  if (mapsLoaderPromise) {
+    return mapsLoaderPromise.then(() => {
+      mountMarketplaceMap();
+    });
+  }
+
+  mapsLoaderPromise = new Promise((resolve, reject) => {
+    window.__kumbuMarketplaceMapsReady = () => {
+      resolve();
+      mountMarketplaceMap();
+      delete window.__kumbuMarketplaceMapsReady;
+    };
+
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(mapsApiKey)}&callback=__kumbuMarketplaceMapsReady&loading=async&v=weekly`;
+    script.async = true;
+    script.defer = true;
+    script.onerror = () => {
+      mapsLoaderPromise = null;
+      reject(new Error('Failed to load Google Maps script'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return mapsLoaderPromise;
 }
 
-loadGoogleMaps();
+function initializeMarketplaceExperience() {
+  clearMarketplaceMapState();
+  syncMarketplaceElements();
+  window.requestAnimationFrame(syncMarketplaceLoadingTrackGeometry);
+  hydrateScoreBars(marketplaceRoot || document);
+  bindMarketplaceControls();
+  setMarketplaceSubmissionState(false);
+  // Defer map init by two animation frames so the browser has computed
+  // layout (clientWidth/clientHeight) before Google Maps measures the container.
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      loadGoogleMaps().catch(error => {
+        console.error('Marketplace map failed to initialize', error);
+      });
+    });
+  });
+}
+
+window.addEventListener('resize', syncMarketplaceLoadingTrackGeometry);
+initializeMarketplaceExperience();
 </script>
 {% endblock %}

@@ -2,15 +2,18 @@
 
 This project can be deployed to Cloud Run without touching your machine-wide default `gcloud` config.
 
+The repo tooling now prefers a dedicated Cloud SDK home at `~/.config/gcloud-kumbu` when that directory exists. This keeps Kumbu auth and cached tokens out of the shared `~/.config/gcloud` home that may also contain unrelated project access.
+
 ## 1. Keep Kumbu On Its Own Gcloud Config
 
 Use the dedicated config every time you work on Kumbu infrastructure:
 
 ```bash
+CLOUDSDK_CONFIG="$HOME/.config/gcloud-kumbu" \
 CLOUDSDK_ACTIVE_CONFIG_NAME=kumbu-connect gcloud config list
 ```
 
-The repo helper script [deploy_cloud_run.sh](../deploy_cloud_run.sh) exports `CLOUDSDK_ACTIVE_CONFIG_NAME=kumbu-connect` automatically.
+The repo helper script [deploy_cloud_run.sh](../deploy_cloud_run.sh) now prefers `~/.config/gcloud-kumbu` automatically.
 The repo wrapper [kgcloud](../kgcloud) does the same for manual `gcloud` commands.
 
 ## 2. Use The Correct Admin Login
@@ -27,11 +30,12 @@ gcloud config set project kumbu-connect
 gcloud config set run/region us-east1
 ```
 
-If you want to avoid changing the globally active config, run the same commands with `CLOUDSDK_ACTIVE_CONFIG_NAME=kumbu-connect` prefixed instead.
+If you want to avoid changing the globally active config, run the same commands with both `CLOUDSDK_CONFIG="$HOME/.config/gcloud-kumbu"` and `CLOUDSDK_ACTIVE_CONFIG_NAME=kumbu-connect` prefixed instead.
 
 ## 3. Enable Required Services
 
 ```bash
+CLOUDSDK_CONFIG="$HOME/.config/gcloud-kumbu" \
 CLOUDSDK_ACTIVE_CONFIG_NAME=kumbu-connect gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
@@ -96,12 +100,19 @@ GOOGLE_OAUTH_TOKEN_JSON=/secrets/google-token/token.json
 Or explicitly:
 
 ```bash
+CLOUDSDK_CONFIG="$HOME/.config/gcloud-kumbu" \
 CLOUDSDK_ACTIVE_CONFIG_NAME=kumbu-connect gcloud run deploy kumbu-connect-web \
   --project=kumbu-connect \
   --region=us-east1 \
   --source . \
   --allow-unauthenticated
 ```
+
+## 8. Dedicated CI Deploy Path
+
+Laptop-based deploys are still useful for emergency recovery, but the preferred path is now CI-based. Use the workflow in [../.github/workflows/deploy-cloud-run.yml](../.github/workflows/deploy-cloud-run.yml) together with the setup steps in [ci-deployment.md](ci-deployment.md).
+
+That workflow avoids any dependency on your local browser sessions, local token cache, or your shared workstation `gcloud` home.
 
 ## 7. Post-Deploy Follow-Up
 

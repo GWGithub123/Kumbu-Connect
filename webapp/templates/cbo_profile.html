@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_contact_macros.html" import render_cbo_contact_inbox, render_funder_contact_modal, render_funder_contact_panel %}
 {% block title %}{{ profile.get('name', cbo.name) }} — Kumbu Connect{% endblock %}
 
 {% block head %}
@@ -15,6 +16,11 @@
 {% block content %}
 {% set embedded_layout = embedded_layout|default(false) %}
 {% set isolated_view = isolated_view or '' %}
+{% set viewer_is_funder = viewer_is_funder|default(false) %}
+{% set bookkeeping_visible = not viewer_is_funder %}
+{% if not bookkeeping_visible and isolated_view in ['bookkeeping-live', 'bookkeeping-digitized'] %}
+{% set isolated_view = '' %}
+{% endif %}
 {% set isolated_profile = isolated_view == 'profile' %}
 {% set isolated_bookkeeping_live = isolated_view == 'bookkeeping-live' %}
 {% set isolated_bookkeeping_digitized = isolated_view == 'bookkeeping-digitized' %}
@@ -65,7 +71,8 @@
     {% endif %}
     {% set fin = profile.get('financial_data', {}) %}
     {% set success = profile.get('success_story', {}) %}
-    {% set recent_feedback = community_feedback.recent_quotes[0] if community_feedback.recent_quotes else none %}
+    {% set feedback_entries = community_feedback.feedback_entries|default([]) %}
+    {% set featured_feedback = community_feedback.featured_quote or (feedback_entries[0] if feedback_entries else none) %}
     {# Embed labels as a DOM data element — readable from {% block scripts %} which has different scope #}
     <script id="chart-labels" type="application/json">{"rentals": {{ lbl_rentals|tojson }}, "borrowers": {{ lbl_borrowers|tojson }}, "duration": {{ lbl_duration|tojson }}}</script>
 
@@ -91,6 +98,25 @@
             <i class="fas fa-star"></i> Social Impact: {{ cbo.social_impact_score }}/100
           </span>
         {% endif %}
+        {% if viewer_can_save %}
+          <div class="save-cbo-region profile-header__save-group" data-save-cbo-region>
+            <button
+              type="button"
+              class="save-cbo-button save-cbo-button--on-dark"
+              data-save-cbo-button
+              data-cbo-slug="{{ cbo.slug }}"
+              data-save-cbo-url="{{ url_for('main.api_toggle_saved_cbo', slug=cbo.slug) }}"
+              data-unsaved-label="Save CBO"
+              data-saved-label="Saved"
+              data-saved="{{ 'true' if saved_by_viewer else 'false' }}"
+              aria-pressed="{{ 'true' if saved_by_viewer else 'false' }}"
+            ><i class="{{ 'fas' if saved_by_viewer else 'far' }} fa-bookmark"></i><span>{{ 'Saved' if saved_by_viewer else 'Save CBO' }}</span></button>
+            <div class="save-cbo-status" data-save-cbo-status hidden></div>
+          </div>
+        {% endif %}
+        {% if viewer_is_funder and contact_post_url %}
+          {{ render_funder_contact_modal(cbo, contact_post_url, viewer_contact_thread, return_to='profile', trigger_id='contact-funder', modal_id='contact-funder-modal') }}
+        {% endif %}
       </div>
       <h1>{{ profile.get('name', cbo.name) }}</h1>
       {% if profile.get('tagline') %}
@@ -109,8 +135,10 @@
     <div class="activity-tabs" role="navigation" aria-label="SMS activity sections">
       <a href="{{ url_for('main.community_feedback_cbo_detail', cbo_id=cbo.id) }}" class="activity-tab">SMS Feedback</a>
       <a href="{{ url_for('main.community_feedback_cbo_detail', cbo_id=cbo.id) }}#google-form-responses" class="activity-tab">Intake Responses</a>
+      {% if bookkeeping_visible %}
       <a href="{{ url_for('main.cbo_profile', slug=cbo.slug, isolated='bookkeeping-live') }}" class="activity-tab{% if isolated_bookkeeping_live %} is-active{% endif %}">Bookkeeping Activity</a>
       <a href="{{ url_for('main.cbo_profile', slug=cbo.slug, isolated='bookkeeping-digitized') }}" class="activity-tab{% if isolated_bookkeeping_digitized %} is-active{% endif %}">Digitized Documents</a>
+      {% endif %}
       <a href="{{ url_for('main.cbo_profile', slug=cbo.slug, isolated='profile') }}" class="activity-tab{% if isolated_profile %} is-active{% endif %}">CBO Profile</a>
     </div>
     {% endif %}
@@ -121,9 +149,11 @@
       <button class="profile-tab active" data-tab="profile" type="button">
         <i class="fas fa-user-circle"></i> Profile
       </button>
+      {% if bookkeeping_visible %}
       <button class="profile-tab" data-tab="bookkeeping" type="button">
         <i class="fas fa-file-invoice-dollar"></i> Bookkeeping
       </button>
+      {% endif %}
     </nav>
     {% endif %}
 
@@ -325,16 +355,35 @@
         </div>
         {% endif %}
 
-        <div class="overview-panel story-section community-feedback-story-card">
-          <h2><i class="fas fa-comments"></i> Community Feedback</h2>
-          {% if recent_feedback %}
-            <blockquote>
-              <p>"{{ recent_feedback.quote }}"</p>
-              <footer>
-                {% if recent_feedback.rating is not none %}{{ recent_feedback.rating }}/10{% endif %}
-                {% if recent_feedback.submitted_at %} • {{ recent_feedback.submitted_at }}{% endif %}
-              </footer>
-            </blockquote>
+        <div class="overview-panel story-section community-feedback-story-card" data-feedback-card>
+          <div class="community-feedback-story-card__header">
+            <h2><i class="fas fa-comments"></i> Community Feedback</h2>
+            {% if feedback_entries|length > 1 %}
+            <button type="button" class="community-feedback-story-card__next" data-feedback-next aria-label="Show next community feedback response">
+              <i class="fas fa-chevron-right"></i>
+            </button>
+            {% endif %}
+          </div>
+          {% if feedback_entries %}
+            <div class="community-feedback-carousel" data-feedback-carousel>
+              {% for entry in feedback_entries %}
+                {% set is_active_feedback = (featured_feedback and entry.id == featured_feedback.id) or (not featured_feedback and loop.first) %}
+                <blockquote class="community-feedback-slide{% if is_active_feedback %} is-active{% endif %}" data-feedback-slide{% if not is_active_feedback %} hidden{% endif %} aria-hidden="{{ 'false' if is_active_feedback else 'true' }}">
+                  <p>"{{ entry.display_quote }}"</p>
+                  <footer class="community-feedback-story-card__meta">
+                    {% if entry.rating is not none %}<span>Rating: {{ entry.rating }}/10</span>{% endif %}
+                    {% if entry.help_count is not none %}<span>Help count: {{ entry.help_count }}</span>{% endif %}
+                    {% if entry.cycle_type %}<span>{{ entry.cycle_type|replace('_', ' ')|title }}</span>{% endif %}
+                    {% if entry.submitted_at %}<span>{{ entry.submitted_at }}</span>{% endif %}
+                  </footer>
+                </blockquote>
+              {% endfor %}
+            </div>
+            {% if feedback_entries|length > 1 %}
+            <div class="community-feedback-story-card__footer">
+              <span class="community-feedback-story-card__counter" data-feedback-counter aria-live="polite"></span>
+            </div>
+            {% endif %}
             <div class="community-feedback-story-stats">
               <span><strong>{{ community_feedback.responses }}</strong> response{{ 's' if community_feedback.responses != 1 else '' }}</span>
               <span><strong>{{ community_feedback.subscribers }}</strong> subscriber{{ 's' if community_feedback.subscribers != 1 else '' }}</span>
@@ -410,6 +459,9 @@
 
     <!-- ── ACTIONS ─────────────────────────────────────────────── -->
     {% if not isolated_view %}
+    {% if own %}
+      {{ render_cbo_contact_inbox(cbo, contact_post_url, contact_threads, anchor_id='contact-cbo') }}
+    {% endif %}
     <div class="profile-actions">
       {% if own %}
         <div class="kobo-connection-panel {% if cbo.has_kobo_connection %}kobo-connection-panel--connected{% else %}kobo-connection-panel--disconnected{% endif %}">
@@ -460,7 +512,7 @@
     {% endif %}
 
     <!-- ── TAB: BOOKKEEPING ────────────────────────────────────── -->
-    {% if not isolated_profile %}
+    {% if bookkeeping_visible and not isolated_profile %}
     <div class="profile-tab-panel{% if isolated_bookkeeping %} active{% endif %}" id="tab-bookkeeping">
       <div id="bookkeepingSectionRoot">
         {% set bookkeeping_locked_pane = 'live' if isolated_bookkeeping_live else ('digitized' if isolated_bookkeeping_digitized else '') %}
@@ -741,9 +793,133 @@ function bindProfileSyncButton() {
 }
 
 bindProfileSyncButton();
+initFeedbackStoryCards();
+initProfileContactModal();
 
 let profileRefreshTimer = 0;
 let profileRefreshInFlight = null;
+
+function initFeedbackStoryCards(scope = document) {
+  const cards = Array.from(scope.querySelectorAll('[data-feedback-card]'));
+  cards.forEach(card => {
+    if (card.dataset.feedbackBound === 'true') {
+      return;
+    }
+
+    const slides = Array.from(card.querySelectorAll('[data-feedback-slide]'));
+    if (!slides.length) {
+      return;
+    }
+
+    const nextButton = card.querySelector('[data-feedback-next]');
+    const counter = card.querySelector('[data-feedback-counter]');
+    let activeIndex = slides.findIndex(slide => !slide.hidden);
+    if (activeIndex < 0) {
+      activeIndex = 0;
+    }
+
+    function renderFeedbackStoryCard() {
+      slides.forEach((slide, index) => {
+        const isActive = index === activeIndex;
+        slide.hidden = !isActive;
+        slide.classList.toggle('is-active', isActive);
+        slide.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+      });
+      if (counter) {
+        counter.textContent = `${activeIndex + 1} of ${slides.length}`;
+      }
+    }
+
+    if (nextButton) {
+      nextButton.addEventListener('click', () => {
+        activeIndex = (activeIndex + 1) % slides.length;
+        renderFeedbackStoryCard();
+      });
+    }
+
+    card.dataset.feedbackBound = 'true';
+    renderFeedbackStoryCard();
+  });
+}
+
+function setProfileContactModalExpanded(modalId, expanded) {
+  document.querySelectorAll(`[data-contact-modal-open="${modalId}"]`).forEach(button => {
+    button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  });
+}
+
+function openProfileContactModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (!modal) {
+    return;
+  }
+  modal.hidden = false;
+  document.body.classList.add('modal-open');
+  setProfileContactModalExpanded(modalId, true);
+  const firstField = modal.querySelector('textarea, input, button');
+  if (firstField) {
+    window.setTimeout(() => {
+      firstField.focus({ preventScroll: true });
+    }, 0);
+  }
+}
+
+function closeProfileContactModal(modal) {
+  if (!modal) {
+    return;
+  }
+  modal.hidden = true;
+  if (modal.id) {
+    setProfileContactModalExpanded(modal.id, false);
+    const opener = document.querySelector(`[data-contact-modal-open="${modal.id}"]`);
+    if (opener) {
+      opener.focus({ preventScroll: true });
+    }
+  }
+  if (!document.querySelector('[data-contact-modal-root]:not([hidden])')) {
+    document.body.classList.remove('modal-open');
+  }
+}
+
+function syncProfileContactModalFromHash() {
+  if (window.location.hash === '#contact-funder') {
+    openProfileContactModal('contact-funder-modal');
+  }
+}
+
+function initProfileContactModal() {
+  if (document.body.dataset.profileContactModalBound !== 'true') {
+    document.body.dataset.profileContactModalBound = 'true';
+
+    document.addEventListener('click', event => {
+      const openTrigger = event.target.closest('[data-contact-modal-open]');
+      if (openTrigger) {
+        const modalId = openTrigger.dataset.contactModalOpen;
+        if (modalId) {
+          openProfileContactModal(modalId);
+        }
+        return;
+      }
+
+      const closeTrigger = event.target.closest('[data-contact-modal-close]');
+      if (closeTrigger) {
+        closeProfileContactModal(closeTrigger.closest('[data-contact-modal-root]'));
+      }
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      const activeModal = document.querySelector('[data-contact-modal-root]:not([hidden])');
+      if (activeModal) {
+        closeProfileContactModal(activeModal);
+      }
+    });
+  }
+
+  syncProfileContactModalFromHash();
+}
 
 function replaceProfileJsonNode(id, sourceDocument) {
   const nextNode = sourceDocument.getElementById(id);
@@ -798,6 +974,8 @@ async function refreshProfileViewFromServer() {
     replaceProfileJsonNode('growth-chart-config-json', nextDocument);
     refreshScoreBars();
     bindProfileSyncButton();
+    initFeedbackStoryCards(currentProfileTab || document);
+    initProfileContactModal();
     initProfileGrowthCharts();
   }).catch(error => {
     console.warn(error);
