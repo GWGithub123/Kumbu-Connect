@@ -65,9 +65,12 @@ class Config:
     KOBO_ASSET_ID = 'aJ7GEDZPU3dbM4KAEqUBKW'
 
     # Gemini
-    GEMINI_API_KEY = os.environ.get('Gemini_API_Key', '').strip()
+    GEMINI_API_KEY = os.environ.get(
+        'Gemini_API_Key',
+        os.environ.get('GEMINI_API_KEY', ''),
+    ).strip()
 
-    # Anthropic Claude bookkeeping extraction
+    # Anthropic Claude (legacy profile synthesis; bookkeeping vision now uses Gemini)
     CLAUDE_API_KEY = os.environ.get(
         'CLAUDE_API_KEY',
         os.environ.get(
@@ -78,7 +81,24 @@ class Config:
             ),
         ),
     ).strip()
-    BOOKKEEPING_VISION_MODEL = os.environ.get('BOOKKEEPING_VISION_MODEL', 'claude-opus-4-6').strip() or 'claude-opus-4-6'
+    BOOKKEEPING_VISION_MODEL = os.environ.get(
+        'BOOKKEEPING_VISION_MODEL',
+        'gemini-3.5-flash',
+    ).strip() or 'gemini-3.5-flash'
+
+    # Narrative report parsing into profile fields
+    NARRATIVE_PROFILE_PARSING_ENABLED = os.environ.get(
+        'NARRATIVE_PROFILE_PARSING_ENABLED',
+        'true',
+    ).strip().lower() == 'true'
+    NARRATIVE_DOCUMENT_MODEL = os.environ.get(
+        'NARRATIVE_DOCUMENT_MODEL',
+        'gemini-3.5-flash',
+    ).strip() or 'gemini-3.5-flash'
+    NARRATIVE_DOCUMENT_TIMEOUT = int(os.environ.get('NARRATIVE_DOCUMENT_TIMEOUT', '180') or 180)
+    NARRATIVE_DOCUMENT_MAX_OUTPUT_TOKENS = int(
+        os.environ.get('NARRATIVE_DOCUMENT_MAX_OUTPUT_TOKENS', '32000') or 32000
+    )
     BOOKKEEPING_REQUEST_TIMEOUT = int(os.environ.get('BOOKKEEPING_REQUEST_TIMEOUT', '180') or 180)
     BOOKKEEPING_MAX_IMAGE_EDGE = int(os.environ.get('BOOKKEEPING_MAX_IMAGE_EDGE', '1568') or 1568)
     BOOKKEEPING_IMAGE_QUALITY = int(os.environ.get('BOOKKEEPING_IMAGE_QUALITY', '85') or 85)
@@ -173,6 +193,10 @@ class Config:
     CONTACT_UPLOAD_DIR = os.environ.get(
         'CONTACT_UPLOAD_DIR',
         os.path.join(os.path.dirname(__file__), 'instance', 'contact_uploads'),
+    ).strip()
+    PROGRAM_PHOTO_UPLOAD_DIR = os.environ.get(
+        'PROGRAM_PHOTO_UPLOAD_DIR',
+        os.path.join(os.path.dirname(__file__), 'instance', 'program_photos'),
     ).strip()
     BOOKKEEPING_MAX_FILES = int(os.environ.get('BOOKKEEPING_MAX_FILES', '5') or 5)
     BOOKKEEPING_MAX_PDF_PAGES = int(os.environ.get('BOOKKEEPING_MAX_PDF_PAGES', '10') or 10)

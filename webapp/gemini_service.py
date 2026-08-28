@@ -413,7 +413,7 @@ def interpret_marketplace_query(query: str) -> dict:
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.5-flash',
             contents=[
                 MARKETPLACE_QUERY_SYSTEM_PROMPT,
                 f'User query: {query}',
@@ -559,7 +559,7 @@ def rank_marketplace_candidates(query: str, candidates: list[dict], search_plan:
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.5-flash',
             contents=[
                 MARKETPLACE_RANKING_SYSTEM_PROMPT,
                 json.dumps({
@@ -774,7 +774,7 @@ def answer_marketplace_cbo_question(question: str, cbo_context: dict, marketplac
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.5-flash',
             contents=[
                 MARKETPLACE_CBO_FOLLOWUP_SYSTEM_PROMPT,
                 json.dumps({
@@ -1190,7 +1190,7 @@ DATA:
 Analyse this data and return the structured CBO profile JSON."""
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.5-flash",
             contents=[
                 SYSTEM_PROMPT,
                 user_prompt,

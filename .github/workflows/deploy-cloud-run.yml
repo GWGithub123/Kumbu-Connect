@@ -18,7 +18,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      PROJECT_ID: kumbu-connect
+      PROJECT_ID: kumbuconnect1
       REGION: us-east1
       SERVICE_NAME: kumbu-connect-web
       SKIP_GCLOUD_CONFIG_CHECK: true

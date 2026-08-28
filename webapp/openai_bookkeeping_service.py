@@ -1,12 +1,13 @@
-"""Anthropic Claude vision extraction for bookkeeping documents."""
-import base64
+"""Gemini vision extraction for bookkeeping documents."""
 import json
 import re
 from io import BytesIO
 from statistics import mean
 
-from anthropic import APIConnectionError, APIStatusError, APITimeoutError, Anthropic, BadRequestError, RateLimitError
 from flask import current_app
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 from .azure_document_intelligence_service import (
@@ -367,14 +368,14 @@ def extract_bookkeeping_document(document_pages: list[dict], filename: str, cbo,
             return _extract_bookkeeping_document_hybrid(document_pages, filename, cbo, related_page_upload=related_page_upload)
         except AzureDocumentIntelligenceError as exc:
             current_app.logger.warning(
-                'Azure bookkeeping transcription failed for %s; falling back to Claude-only extraction: %s',
+                'Azure bookkeeping transcription failed for %s; falling back to Gemini-only extraction: %s',
                 filename,
                 exc,
             )
-            if not _claude_bookkeeping_api_key():
+            if not _gemini_bookkeeping_api_key():
                 raise BookkeepingExtractionError(str(exc)) from exc
 
-    return _extract_bookkeeping_document_with_claude_vision(document_pages, filename, cbo, related_page_upload=related_page_upload)
+    return _extract_bookkeeping_document_with_gemini_vision(document_pages, filename, cbo, related_page_upload=related_page_upload)
 
 
 def _extract_bookkeeping_document_hybrid(document_pages: list[dict], filename: str, cbo, related_page_upload: bool = False) -> dict:
@@ -382,7 +383,7 @@ def _extract_bookkeeping_document_hybrid(document_pages: list[dict], filename: s
         raise BookkeepingExtractionError('No document pages were provided for extraction.')
 
     current_app.logger.info(
-        'Starting Azure+Claude bookkeeping extraction for %s (%s): %d page(s), related_pages=%s',
+        'Starting Azure+Gemini bookkeeping extraction for %s (%s): %d page(s), related_pages=%s',
         filename,
         cbo.name,
         len(document_pages),
@@ -406,33 +407,33 @@ def _extract_bookkeeping_document_hybrid(document_pages: list[dict], filename: s
     )
     azure_payload = _apply_page_order_hints(azure_payload, document_pages)
 
-    claude_api_key = _claude_bookkeeping_api_key()
+    gemini_api_key = _gemini_bookkeeping_api_key()
     merged_payload = azure_payload
     normalization_provider = ''
-    if claude_api_key:
+    if gemini_api_key:
         try:
-            merged_payload = _normalize_azure_transcription_with_claude(
+            merged_payload = _normalize_azure_transcription_with_gemini(
                 azure_payload,
                 review_snippets,
                 filename,
                 cbo,
                 related_page_upload=related_page_upload,
             )
-            normalization_provider = current_app.config.get('BOOKKEEPING_VISION_MODEL', 'claude-opus-4-6')
+            normalization_provider = current_app.config.get('BOOKKEEPING_VISION_MODEL', 'gemini-3.5-flash')
         except BookkeepingExtractionError as exc:
             current_app.logger.warning(
-                'Claude bookkeeping normalization failed for %s; keeping Azure raw transcription: %s',
+                'Gemini bookkeeping normalization failed for %s; keeping Azure raw transcription: %s',
                 filename,
                 exc,
             )
             _append_extraction_note(
                 merged_payload,
-                'Claude normalization was skipped after a secondary normalization error; Azure raw transcription was preserved.'
+                'Gemini normalization was skipped after a secondary normalization error; Azure raw transcription was preserved.'
             )
     else:
         _append_extraction_note(
             merged_payload,
-            'Claude normalization was skipped because CLAUDE_API_KEY or ANTHROPIC_API_KEY is not configured.'
+            'Gemini normalization was skipped because Gemini_API_Key is not configured.'
         )
 
     normalized = refine_extracted_bookkeeping_payload(_normalize_payload(merged_payload))
@@ -448,19 +449,31 @@ def _extract_bookkeeping_document_hybrid(document_pages: list[dict], filename: s
     )
     normalized['transcription_provider'] = 'azure_document_intelligence'
     normalized['normalization_provider'] = normalization_provider
-    normalized['extraction_pipeline'] = 'azure_layout_read_plus_claude_normalizer' if normalization_provider else 'azure_layout_read_only'
+    normalized['extraction_pipeline'] = 'azure_layout_read_plus_gemini_normalizer' if normalization_provider else 'azure_layout_read_only'
     normalized['review_snippet_count'] = len(review_snippets)
     return normalized
 
 
-def _claude_bookkeeping_api_key() -> str:
-    return str(current_app.config.get('CLAUDE_API_KEY') or '').strip()
+def _gemini_bookkeeping_api_key() -> str:
+    return str(current_app.config.get('GEMINI_API_KEY') or '').strip()
 
 
-def _extract_bookkeeping_document_with_claude_vision(document_pages: list[dict], filename: str, cbo, related_page_upload: bool = False) -> dict:
-    api_key = (current_app.config.get('CLAUDE_API_KEY') or '').strip()
+def _gemini_bookkeeping_client(api_key: str) -> genai.Client:
+    timeout_s = int(current_app.config.get('BOOKKEEPING_REQUEST_TIMEOUT', 180) or 180)
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=max(1000, timeout_s * 1000)),
+    )
+
+
+def _bookkeeping_vision_model() -> str:
+    return str(current_app.config.get('BOOKKEEPING_VISION_MODEL') or 'gemini-3.5-flash').strip() or 'gemini-3.5-flash'
+
+
+def _extract_bookkeeping_document_with_gemini_vision(document_pages: list[dict], filename: str, cbo, related_page_upload: bool = False) -> dict:
+    api_key = _gemini_bookkeeping_api_key()
     if not api_key:
-        raise BookkeepingExtractionError('CLAUDE_API_KEY or ANTHROPIC_API_KEY is not configured.')
+        raise BookkeepingExtractionError('Gemini_API_Key is not configured.')
 
     if not document_pages:
         raise BookkeepingExtractionError('No document pages were provided for extraction.')
@@ -480,7 +493,7 @@ def _extract_bookkeeping_document_with_claude_vision(document_pages: list[dict],
                 idx, len(document_pages), filename, cbo.name, len(page_bytes), page.get('mime_type', '?'),
             )
 
-    client = Anthropic(api_key=api_key)
+    client = _gemini_bookkeeping_client(api_key)
     max_output_tokens = int(current_app.config.get('BOOKKEEPING_MAX_OUTPUT_TOKENS', 12000) or 12000)
     retry_max_output_tokens = int(current_app.config.get('BOOKKEEPING_RETRY_MAX_OUTPUT_TOKENS', 24000) or 24000)
 
@@ -509,7 +522,7 @@ def _extract_bookkeeping_document_with_claude_vision(document_pages: list[dict],
             )
         except BookkeepingExtractionError as exc:
             current_app.logger.warning(
-                'Claude detailed bookkeeping retry failed for %s: %s. Keeping minimal-pass extraction.',
+                'Gemini detailed bookkeeping retry failed for %s: %s. Keeping minimal-pass extraction.',
                 filename,
                 exc,
             )
@@ -524,22 +537,22 @@ def _extract_bookkeeping_document_with_claude_vision(document_pages: list[dict],
     return normalized
 
 
-def _normalize_azure_transcription_with_claude(
+def _normalize_azure_transcription_with_gemini(
     azure_payload: dict,
     review_snippets: list[dict],
     filename: str,
     cbo,
     related_page_upload: bool = False,
 ) -> dict:
-    api_key = _claude_bookkeeping_api_key()
+    api_key = _gemini_bookkeeping_api_key()
     if not api_key:
-        raise BookkeepingExtractionError('CLAUDE_API_KEY or ANTHROPIC_API_KEY is not configured.')
+        raise BookkeepingExtractionError('Gemini_API_Key is not configured.')
 
-    client = Anthropic(api_key=api_key)
+    client = _gemini_bookkeeping_client(api_key)
     max_output_tokens = int(current_app.config.get('BOOKKEEPING_MAX_OUTPUT_TOKENS', 12000) or 12000)
     retry_max_output_tokens = int(current_app.config.get('BOOKKEEPING_RETRY_MAX_OUTPUT_TOKENS', 24000) or 24000)
     review_limit = int(current_app.config.get('BOOKKEEPING_CLAUDE_REVIEW_ROW_LIMIT', 8) or 8)
-    content = _build_bookkeeping_normalization_content(
+    parts = _build_bookkeeping_normalization_parts(
         azure_payload,
         review_snippets[:review_limit],
         filename,
@@ -548,32 +561,34 @@ def _normalize_azure_transcription_with_claude(
     )
 
     try:
-        response = _request_bookkeeping_normalization_response(client, content, max_output_tokens)
-    except RateLimitError as exc:
-        raise BookkeepingExtractionError('Claude normalization quota was exceeded. Check billing or try again later.') from exc
-    except APITimeoutError as exc:
-        raise BookkeepingExtractionError('Claude normalization timed out while reviewing the Azure transcription.') from exc
-    except APIConnectionError as exc:
-        raise BookkeepingExtractionError('Could not reach Claude while normalizing the Azure transcription.') from exc
-    except BadRequestError as exc:
-        detail = _anthropic_error_message(exc)
+        response = _request_bookkeeping_normalization_response(client, parts, max_output_tokens)
+    except genai_errors.ClientError as exc:
+        if int(getattr(exc, 'code', 0) or 0) == 429:
+            raise BookkeepingExtractionError('Gemini normalization quota was exceeded. Check billing or try again later.') from exc
+        detail = _gemini_error_message(exc)
         raise BookkeepingExtractionError(
-            f'Claude normalization rejected the Azure transcription payload{": " + detail if detail else "."}'
+            f'Gemini normalization returned an error: {getattr(exc, "code", "?")}{": " + detail if detail else "."}'
         ) from exc
-    except APIStatusError as exc:
-        raise BookkeepingExtractionError(f'Claude normalization returned an error: {exc.status_code}.') from exc
+    except genai_errors.ServerError as exc:
+        raise BookkeepingExtractionError('Could not reach Gemini while normalizing the Azure transcription.') from exc
+    except genai_errors.APIError as exc:
+        raise BookkeepingExtractionError(f'Gemini normalization returned an error: {getattr(exc, "code", "?")}.') from exc
+    except Exception as exc:
+        if 'timeout' in str(exc).lower():
+            raise BookkeepingExtractionError('Gemini normalization timed out while reviewing the Azure transcription.') from exc
+        raise
 
     try:
-        payload = _extract_anthropic_payload(response)
+        payload = _extract_gemini_payload(response)
     except json.JSONDecodeError as exc:
-        if str(getattr(response, 'stop_reason', '') or '') == 'max_tokens' and retry_max_output_tokens > max_output_tokens:
-            response = _request_bookkeeping_normalization_response(client, content, retry_max_output_tokens)
+        if _gemini_finish_reason(response) in {'MAX_TOKENS', 'LENGTH'} and retry_max_output_tokens > max_output_tokens:
+            response = _request_bookkeeping_normalization_response(client, parts, retry_max_output_tokens)
             try:
-                payload = _extract_anthropic_payload(response)
+                payload = _extract_gemini_payload(response)
             except json.JSONDecodeError as retry_exc:
-                raise BookkeepingExtractionError('Claude normalization returned invalid bookkeeping JSON.') from retry_exc
+                raise BookkeepingExtractionError('Gemini normalization returned invalid bookkeeping JSON.') from retry_exc
         else:
-            raise BookkeepingExtractionError('Claude normalization returned invalid bookkeeping JSON.') from exc
+            raise BookkeepingExtractionError('Gemini normalization returned invalid bookkeeping JSON.') from exc
 
     merged = dict(azure_payload)
     for field in ('document_type', 'document_date', 'period_start', 'period_end', 'currency', 'organization_name', 'document_title', 'vendor_or_counterparty', 'summary'):
@@ -587,21 +602,21 @@ def _normalize_azure_transcription_with_claude(
         for text in [str(azure_payload.get('extraction_notes') or ''), str(payload.get('extraction_notes') or '')]
         if text and text.strip()
     ).strip()
-    merged = _merge_claude_row_repairs(merged, payload.get('repaired_rows') or [])
+    merged = _merge_gemini_row_repairs(merged, payload.get('repaired_rows') or [])
     merged['bookkeeping_entries'] = payload.get('bookkeeping_entries') or []
     return merged
 
 
-def _build_bookkeeping_normalization_content(
+def _build_bookkeeping_normalization_parts(
     azure_payload: dict,
     review_snippets: list[dict],
     filename: str,
     cbo,
     related_page_upload: bool = False,
-) -> list[dict]:
+) -> list:
     review_limit = int(current_app.config.get('BOOKKEEPING_CLAUDE_REVIEW_ROW_LIMIT', 8) or 8)
     cell_limit = int(current_app.config.get('BOOKKEEPING_CLAUDE_REVIEW_CELL_LIMIT', 4) or 4)
-    repair_candidates = _select_review_snippets_for_claude(review_snippets, review_limit)
+    repair_candidates = _select_review_snippets_for_repair(review_snippets, review_limit)
     transcription_payload = {
         'organization_name': azure_payload.get('organization_name') or cbo.name,
         'document_title': azure_payload.get('document_title') or '',
@@ -614,72 +629,52 @@ def _build_bookkeeping_normalization_content(
         'repair_candidate_row_numbers': [snippet.get('row_number') for snippet in repair_candidates if snippet.get('row_number')],
     }
 
-    content = [
-        {
-            'type': 'text',
-            'text': (
+    parts = [
+        types.Part.from_text(
+            text=(
                 'Normalize bookkeeping entries from this Azure Document Intelligence transcription. '
                 f'CBO: {cbo.name}. Filename: {filename}. '
                 'Preserve the provided detected_columns and transcribed_rows as the source of truth. '
                 'Do not invent rows or replace the source transcription.'
                 + (' These images were uploaded as related pages of the same logical document.' if related_page_upload else '')
-            ),
-        },
-        {
-            'type': 'text',
-            'text': json.dumps(transcription_payload, ensure_ascii=True),
-        },
+            )
+        ),
+        types.Part.from_text(text=json.dumps(transcription_payload, ensure_ascii=True)),
     ]
 
     for snippet in repair_candidates:
-        content.append({
-            'type': 'text',
-            'text': (
+        image_bytes = snippet.get('image_bytes') or b''
+        mime_type = str(snippet.get('mime_type') or 'image/png')
+        parts.append(types.Part.from_text(
+            text=(
                 f"Low-confidence repair candidate row {snippet.get('row_number')} from page {snippet.get('page_number')}, "
                 f"confidence {float(snippet.get('confidence') or 0.0):.2f}. "
                 f"Azure row cells: {json.dumps(snippet.get('cells') or {}, ensure_ascii=True)}. "
                 f"Conflict columns: {json.dumps(snippet.get('conflict_columns') or [], ensure_ascii=True)}"
-            ),
-        })
-        content.append({
-            'type': 'text',
-            'text': str(snippet.get('label') or 'Ambiguous source row crop'),
-        })
-        content.append({
-            'type': 'image',
-            'source': {
-                'type': 'base64',
-                'media_type': snippet.get('mime_type') or 'image/png',
-                'data': base64.b64encode(snippet.get('image_bytes') or b'').decode('ascii'),
-            },
-        })
+            )
+        ))
+        parts.append(types.Part.from_text(text=str(snippet.get('label') or 'Ambiguous source row crop')))
+        if image_bytes and mime_type.startswith('image/'):
+            parts.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
         for cell_snippet in (snippet.get('cell_snippets') or [])[:cell_limit]:
-            content.append({
-                'type': 'text',
-                'text': (
+            cell_bytes = cell_snippet.get('image_bytes') or b''
+            cell_mime = str(cell_snippet.get('mime_type') or 'image/png')
+            parts.append(types.Part.from_text(
+                text=(
                     f"Cell repair candidate for row {cell_snippet.get('row_number')} column {cell_snippet.get('column_name')}. "
                     f"Azure text: {json.dumps(cell_snippet.get('cell_text') or '', ensure_ascii=True)}. "
                     f"Confidence {float(cell_snippet.get('confidence') or 0.0):.2f}. "
                     f"Reason: {cell_snippet.get('reason') or 'Low-confidence cell'}"
-                ),
-            })
-            content.append({
-                'type': 'text',
-                'text': str(cell_snippet.get('label') or 'Ambiguous source cell crop'),
-            })
-            content.append({
-                'type': 'image',
-                'source': {
-                    'type': 'base64',
-                    'media_type': cell_snippet.get('mime_type') or 'image/png',
-                    'data': base64.b64encode(cell_snippet.get('image_bytes') or b'').decode('ascii'),
-                },
-            })
+                )
+            ))
+            parts.append(types.Part.from_text(text=str(cell_snippet.get('label') or 'Ambiguous source cell crop')))
+            if cell_bytes and cell_mime.startswith('image/'):
+                parts.append(types.Part.from_bytes(data=cell_bytes, mime_type=cell_mime))
 
-    return content
+    return parts
 
 
-def _select_review_snippets_for_claude(review_snippets: list[dict], review_limit: int) -> list[dict]:
+def _select_review_snippets_for_repair(review_snippets: list[dict], review_limit: int) -> list[dict]:
     def score(snippet: dict) -> tuple[float, int]:
         confidence = float(snippet.get('confidence') or 0.0)
         cell_count = len(snippet.get('cell_snippets') or [])
@@ -691,7 +686,7 @@ def _select_review_snippets_for_claude(review_snippets: list[dict], review_limit
     return selected[:max(0, review_limit)]
 
 
-def _merge_claude_row_repairs(payload: dict, repaired_rows: list[dict]) -> dict:
+def _merge_gemini_row_repairs(payload: dict, repaired_rows: list[dict]) -> dict:
     rows = [dict(row) for row in (payload.get('transcribed_rows') or []) if isinstance(row, dict)]
     if not rows or not repaired_rows:
         return payload
@@ -735,42 +730,34 @@ def _merge_claude_row_repairs(payload: dict, repaired_rows: list[dict]) -> dict:
         original_row['confidence'] = max(_clamp_confidence(original_row.get('confidence')), repair_confidence)
         repair_note = str(repaired_row.get('notes') or '').strip()
         merged_note = str(original_row.get('notes') or '').strip()
-        note_bits = [bit for bit in [merged_note, repair_note, f'Claude repaired columns: {", ".join(changed_columns)}'] if bit]
+        note_bits = [bit for bit in [merged_note, repair_note, f'Gemini repaired columns: {", ".join(changed_columns)}'] if bit]
         original_row['notes'] = '; '.join(_merge_string_lists([], note_bits))[:320]
         repaired_count += 1
 
     if repaired_count:
         _append_extraction_note(
             payload,
-            f'Claude repaired {repaired_count} low-confidence row(s) using grounded row and cell crops from the original image.'
+            f'Gemini repaired {repaired_count} low-confidence row(s) using grounded row and cell crops from the original image.'
         )
         payload['quality_flags'] = _merge_string_lists(
             payload.get('quality_flags') or [],
-            [f'Claude applied grounded repairs to {repaired_count} low-confidence row(s).'],
+            [f'Gemini applied grounded repairs to {repaired_count} low-confidence row(s).'],
         )
         payload['transcribed_rows'] = list(row_map.values())
     return payload
 
 
-def _request_bookkeeping_normalization_response(client: Anthropic, content: list[dict], max_output_tokens: int):
-    return client.messages.create(
-        model=current_app.config.get('BOOKKEEPING_VISION_MODEL', 'claude-opus-4-6'),
-        temperature=0,
-        max_tokens=max_output_tokens,
-        timeout=current_app.config.get('BOOKKEEPING_REQUEST_TIMEOUT', 180),
-        system=NORMALIZATION_PROMPT,
-        output_config={
-            'format': {
-                'type': 'json_schema',
-                'schema': BOOKKEEPING_NORMALIZATION_SCHEMA,
-            },
-        },
-        messages=[
-            {
-                'role': 'user',
-                'content': content,
-            },
-        ],
+def _request_bookkeeping_normalization_response(client: genai.Client, parts: list, max_output_tokens: int):
+    return client.models.generate_content(
+        model=_bookkeeping_vision_model(),
+        contents=parts,
+        config=types.GenerateContentConfig(
+            temperature=0,
+            max_output_tokens=max_output_tokens,
+            system_instruction=NORMALIZATION_PROMPT,
+            response_mime_type='application/json',
+            response_json_schema=BOOKKEEPING_NORMALIZATION_SCHEMA,
+        ),
     )
 
 
@@ -785,7 +772,7 @@ def _merge_string_lists(primary: list[str], secondary: list[str]) -> list[str]:
 
 
 def _extract_bookkeeping_document_with_mode(
-    client: Anthropic,
+    client: genai.Client,
     document_pages: list[dict],
     filename: str,
     cbo,
@@ -794,7 +781,7 @@ def _extract_bookkeeping_document_with_mode(
     max_output_tokens: int,
     retry_max_output_tokens: int,
 ) -> dict:
-    content, variant_count, total_variant_bytes = _build_bookkeeping_request_content(
+    parts, variant_count, total_variant_bytes = _build_bookkeeping_request_parts(
         document_pages,
         filename,
         cbo,
@@ -803,7 +790,7 @@ def _extract_bookkeeping_document_with_mode(
     )
 
     current_app.logger.info(
-        'Bookkeeping extraction request for %s (%s): mode=%s, %d image variants, %d bytes after Claude optimization, timeout=%ss',
+        'Bookkeeping extraction request for %s (%s): mode=%s, %d image variants, %d bytes after Gemini optimization, timeout=%ss',
         filename,
         cbo.name,
         variant_mode,
@@ -813,65 +800,68 @@ def _extract_bookkeeping_document_with_mode(
     )
 
     try:
-        response = _request_bookkeeping_response(client, content, max_output_tokens)
-    except RateLimitError as exc:
-        raise BookkeepingExtractionError('Claude vision quota was exceeded. Check billing or try again later.') from exc
-    except APITimeoutError as exc:
-        raise BookkeepingExtractionError('Claude vision timed out while reading this document. Try a smaller file or a clearer crop.') from exc
-    except APIConnectionError as exc:
-        raise BookkeepingExtractionError('Could not reach Claude vision service. Try again in a moment.') from exc
-    except BadRequestError as exc:
-        detail = _anthropic_error_message(exc)
-        current_app.logger.warning('Claude bookkeeping bad request for %s: %s', filename, detail or exc)
+        response = _request_bookkeeping_response(client, parts, max_output_tokens)
+    except genai_errors.ClientError as exc:
+        code = int(getattr(exc, 'code', 0) or 0)
+        if code == 429:
+            raise BookkeepingExtractionError('Gemini vision quota was exceeded. Check billing or try again later.') from exc
+        detail = _gemini_error_message(exc)
+        current_app.logger.warning('Gemini bookkeeping client error for %s: %s', filename, detail or exc)
         raise BookkeepingExtractionError(
-            f'Claude vision rejected this document payload{": " + detail if detail else ". Try a smaller file or clearer crop."}'
+            f'Gemini vision returned an error: {code or "?"}{": " + detail if detail else "."}'
         ) from exc
-    except APIStatusError as exc:
-        raise BookkeepingExtractionError(f'Claude vision returned an error: {exc.status_code}.') from exc
+    except genai_errors.ServerError as exc:
+        raise BookkeepingExtractionError('Could not reach Gemini vision service. Try again in a moment.') from exc
+    except genai_errors.APIError as exc:
+        raise BookkeepingExtractionError(f'Gemini vision returned an error: {getattr(exc, "code", "?")}.') from exc
+    except Exception as exc:
+        if 'timeout' in str(exc).lower():
+            raise BookkeepingExtractionError('Gemini vision timed out while reading this document. Try a smaller file or a clearer crop.') from exc
+        raise
 
     try:
-        payload = _extract_anthropic_payload(response)
+        payload = _extract_gemini_payload(response)
     except json.JSONDecodeError as exc:
-        response_text = _anthropic_response_text(response)
-        stop_reason = str(getattr(response, 'stop_reason', '') or '')
+        response_text = _gemini_response_text(response)
+        finish_reason = _gemini_finish_reason(response)
         current_app.logger.warning(
-            'Claude bookkeeping invalid JSON for %s: mode=%s, stop_reason=%s, text_len=%d, text_prefix=%r',
+            'Gemini bookkeeping invalid JSON for %s: mode=%s, finish_reason=%s, text_len=%d, text_prefix=%r',
             filename,
             variant_mode,
-            stop_reason,
+            finish_reason,
             len(response_text),
             response_text[:300],
         )
 
-        if stop_reason == 'max_tokens' and retry_max_output_tokens > max_output_tokens:
+        if finish_reason in {'MAX_TOKENS', 'LENGTH'} and retry_max_output_tokens > max_output_tokens:
             current_app.logger.info(
-                'Retrying Claude bookkeeping extraction for %s with higher max_tokens=%d after truncation at %d (mode=%s)',
+                'Retrying Gemini bookkeeping extraction for %s with higher max_output_tokens=%d after truncation at %d (mode=%s)',
                 filename,
                 retry_max_output_tokens,
                 max_output_tokens,
                 variant_mode,
             )
             try:
-                response = _request_bookkeeping_response(client, content, retry_max_output_tokens)
-                payload = _extract_anthropic_payload(response)
+                response = _request_bookkeeping_response(client, parts, retry_max_output_tokens)
+                payload = _extract_gemini_payload(response)
             except json.JSONDecodeError as retry_exc:
-                retry_text = _anthropic_response_text(response)
-                retry_stop_reason = str(getattr(response, 'stop_reason', '') or '')
+                retry_text = _gemini_response_text(response)
+                retry_finish_reason = _gemini_finish_reason(response)
                 current_app.logger.warning(
-                    'Claude bookkeeping retry still produced invalid JSON for %s: mode=%s, stop_reason=%s, text_len=%d, text_prefix=%r',
+                    'Gemini bookkeeping retry still produced invalid JSON for %s: mode=%s, finish_reason=%s, text_len=%d, text_prefix=%r',
                     filename,
                     variant_mode,
-                    retry_stop_reason,
+                    retry_finish_reason,
                     len(retry_text),
                     retry_text[:300],
                 )
-                if retry_stop_reason == 'max_tokens':
+                if retry_finish_reason in {'MAX_TOKENS', 'LENGTH'}:
                     raise BookkeepingExtractionError(
-                        'Claude truncated the bookkeeping JSON before finishing. This page is too dense for one pass; split the document or raise BOOKKEEPING_RETRY_MAX_OUTPUT_TOKENS.'
+                        'Gemini truncated the bookkeeping JSON before finishing. This page is too dense for one pass; split the document or raise BOOKKEEPING_RETRY_MAX_OUTPUT_TOKENS.'
                     ) from retry_exc
-                raise BookkeepingExtractionError('Claude returned invalid bookkeeping JSON.') from retry_exc
+                raise BookkeepingExtractionError('Gemini returned invalid bookkeeping JSON.') from retry_exc
         else:
-            raise BookkeepingExtractionError('Claude returned invalid bookkeeping JSON.') from exc
+            raise BookkeepingExtractionError('Gemini returned invalid bookkeeping JSON.') from exc
 
     normalized = refine_extracted_bookkeeping_payload(_normalize_payload(payload))
     normalized = _apply_page_order_hints(normalized, document_pages)
@@ -879,22 +869,21 @@ def _extract_bookkeeping_document_with_mode(
     if not normalized['bookkeeping_entries'] and not normalized['summary'] and not normalized['transcribed_rows']:
         raise BookkeepingExtractionError('No bookkeeping data could be extracted from this image.')
 
-    normalized['model_used'] = current_app.config.get('BOOKKEEPING_VISION_MODEL', 'claude-opus-4-6')
+    normalized['model_used'] = _bookkeeping_vision_model()
     normalized['extraction_variant_mode'] = variant_mode
     return normalized
 
 
-def _build_bookkeeping_request_content(
+def _build_bookkeeping_request_parts(
     document_pages: list[dict],
     filename: str,
     cbo,
     related_page_upload: bool,
     variant_mode: str,
-) -> tuple[list[dict], int, int]:
-    content = [
-        {
-            'type': 'text',
-            'text': (
+) -> tuple[list, int, int]:
+    parts = [
+        types.Part.from_text(
+            text=(
                 'Extract bookkeeping data from this photographed document for '
                 f'{cbo.name}. The CBO identifier is {cbo.cbo_identifier or "community"}. '
                 f'Filename: {filename}. This upload contains {len(document_pages)} page(s). '
@@ -906,50 +895,38 @@ def _build_bookkeeping_request_content(
                     if related_page_upload else
                     ''
                 )
-            ),
-        }
+            )
+        )
     ]
     variant_count = 0
     total_variant_bytes = 0
 
     for index, page in enumerate(document_pages, start=1):
         variants = _page_visual_variants(page, variant_mode=variant_mode)
-        content.append({
-            'type': 'text',
-            'text': (
+        parts.append(types.Part.from_text(
+            text=(
                 f'Page {index} of {len(document_pages)}. '
                 'If multiple orientations are shown below, they are alternate rotations of the same page. '
                 'Use the orientation where the text is upright and keep only one copy of each visible row.'
-            ),
-        })
+            )
+        ))
         for variant in variants:
-            optimized_variant = _optimize_variant_for_claude(variant)
+            optimized_variant = _optimize_variant_for_vision(variant)
             variant_count += 1
             total_variant_bytes += len(optimized_variant['image_bytes'])
-            content.append({'type': 'text', 'text': variant['label']})
-            content.append({
-                'type': 'image',
-                'source': {
-                    'type': 'base64',
-                    'media_type': optimized_variant['mime_type'],
-                    'data': base64.b64encode(optimized_variant['image_bytes']).decode('ascii'),
-                },
-            })
+            parts.append(types.Part.from_text(text=str(variant.get('label') or 'Image variant')))
+            parts.append(types.Part.from_bytes(
+                data=optimized_variant['image_bytes'],
+                mime_type=optimized_variant['mime_type'],
+            ))
 
-    return content, variant_count, total_variant_bytes
+    return parts, variant_count, total_variant_bytes
 
 
-def _extract_anthropic_payload(response) -> dict:
-    for block in response.content:
-        parsed_output = getattr(block, 'parsed_output', None)
-        if isinstance(parsed_output, dict):
-            return parsed_output
-        if parsed_output is not None and hasattr(parsed_output, 'model_dump'):
-            return parsed_output.model_dump()
-
-    message = _anthropic_response_text(response)
+def _extract_gemini_payload(response) -> dict:
+    message = _gemini_response_text(response)
     if not message:
-        raise BookkeepingExtractionError('Claude returned an empty bookkeeping response.')
+        raise BookkeepingExtractionError('Gemini returned an empty bookkeeping response.')
     try:
         return json.loads(message)
     except json.JSONDecodeError:
@@ -959,34 +936,47 @@ def _extract_anthropic_payload(response) -> dict:
         raise
 
 
-def _request_bookkeeping_response(client: Anthropic, content: list[dict], max_output_tokens: int):
-    return client.messages.create(
-        model=current_app.config.get('BOOKKEEPING_VISION_MODEL', 'claude-opus-4-6'),
-        temperature=0,
-        max_tokens=max_output_tokens,
-        timeout=current_app.config.get('BOOKKEEPING_REQUEST_TIMEOUT', 180),
-        system=SYSTEM_PROMPT,
-        output_config={
-            'format': {
-                'type': 'json_schema',
-                'schema': BOOKKEEPING_OUTPUT_SCHEMA,
-            },
-        },
-        messages=[
-            {
-                'role': 'user',
-                'content': content,
-            },
-        ],
+def _request_bookkeeping_response(client: genai.Client, parts: list, max_output_tokens: int):
+    return client.models.generate_content(
+        model=_bookkeeping_vision_model(),
+        contents=parts,
+        config=types.GenerateContentConfig(
+            temperature=0,
+            max_output_tokens=max_output_tokens,
+            system_instruction=SYSTEM_PROMPT,
+            response_mime_type='application/json',
+            response_json_schema=BOOKKEEPING_OUTPUT_SCHEMA,
+        ),
     )
 
 
-def _anthropic_response_text(response) -> str:
-    return ''.join(
-        getattr(block, 'text', '')
-        for block in response.content
-        if getattr(block, 'type', '') == 'text'
-    ).strip()
+def _gemini_response_text(response) -> str:
+    try:
+        text = getattr(response, 'text', None)
+        if text:
+            return str(text).strip()
+    except Exception:
+        pass
+
+    chunks = []
+    for candidate in getattr(response, 'candidates', None) or []:
+        content = getattr(candidate, 'content', None)
+        for part in getattr(content, 'parts', None) or []:
+            part_text = getattr(part, 'text', None)
+            if part_text:
+                chunks.append(str(part_text))
+    return ''.join(chunks).strip()
+
+
+def _gemini_finish_reason(response) -> str:
+    try:
+        candidates = getattr(response, 'candidates', None) or []
+        if not candidates:
+            return ''
+        reason = getattr(candidates[0], 'finish_reason', None)
+        return str(getattr(reason, 'name', reason) or '').strip().upper()
+    except Exception:
+        return ''
 
 
 def _extract_json_object_fragment(text: str) -> str:
@@ -997,13 +987,17 @@ def _extract_json_object_fragment(text: str) -> str:
     return text[start:end + 1]
 
 
-def _anthropic_error_message(exc: Exception) -> str:
-    body = getattr(exc, 'body', None) or {}
-    if isinstance(body, dict):
-        error = body.get('error') or {}
-        message = str(error.get('message') or '').strip()
-        if message:
-            return message
+def _gemini_error_message(exc: Exception) -> str:
+    message = str(getattr(exc, 'message', '') or '').strip()
+    if message:
+        return message
+    details = getattr(exc, 'details', None)
+    if isinstance(details, dict):
+        error = details.get('error') or details
+        if isinstance(error, dict):
+            nested = str(error.get('message') or '').strip()
+            if nested:
+                return nested
     return str(exc).strip()
 
 
@@ -1561,7 +1555,7 @@ def _is_wide_ledger_page(page: dict) -> bool:
         return False
 
 
-def _optimize_variant_for_claude(variant: dict) -> dict:
+def _optimize_variant_for_vision(variant: dict) -> dict:
     mime_type = str(variant.get('mime_type') or '')
     image_bytes = variant.get('image_bytes') or b''
     if not mime_type.startswith('image/') or not image_bytes:

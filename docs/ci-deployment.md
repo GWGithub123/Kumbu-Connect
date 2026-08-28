@@ -6,7 +6,7 @@ This repo now includes a GitHub Actions workflow at [../.github/workflows/deploy
 
 Use GitHub Actions with Workload Identity Federation and a dedicated Kumbu deploy service account.
 
-That keeps deploy authority in the `kumbu-connect` project and avoids long-lived JSON keys on developer laptops.
+That keeps deploy authority in the `kumbuconnect1` project and avoids long-lived JSON keys on developer laptops.
 
 ## Required GitHub Secrets
 
@@ -15,9 +15,16 @@ Add these repository secrets:
 - `GCP_WORKLOAD_IDENTITY_PROVIDER`
 - `GCP_DEPLOY_SERVICE_ACCOUNT`
 
+For this repo, the values are:
+
+```text
+GCP_WORKLOAD_IDENTITY_PROVIDER=projects/62809838048/locations/global/workloadIdentityPools/github-actions/providers/kumbu-connect-github
+GCP_DEPLOY_SERVICE_ACCOUNT=github-actions-deployer@kumbuconnect1.iam.gserviceaccount.com
+```
+
 The workflow assumes:
 
-- project ID: `kumbu-connect`
+- project ID: `kumbuconnect1`
 - region: `us-east1`
 - service: `kumbu-connect-web`
 
@@ -26,7 +33,7 @@ The workflow assumes:
 Create a dedicated deploy service account such as:
 
 ```text
-github-actions-deployer@kumbu-connect.iam.gserviceaccount.com
+github-actions-deployer@kumbuconnect1.iam.gserviceaccount.com
 ```
 
 Grant it the minimum roles needed for your deploy path. A practical starting set is:
@@ -34,15 +41,21 @@ Grant it the minimum roles needed for your deploy path. A practical starting set
 - `roles/run.admin`
 - `roles/cloudbuild.builds.editor`
 - `roles/artifactregistry.writer`
-- `roles/iam.serviceAccountUser` on `kumbu-cloud-run@kumbu-connect.iam.gserviceaccount.com`
+- `roles/iam.serviceAccountUser` on `kumbu-cloud-run@kumbuconnect1.iam.gserviceaccount.com`
 
 Depending on org policy and how you manage referenced secrets, you may also need narrowly scoped Secret Manager visibility for deployment validation.
 
 ## Workload Identity Federation
 
-Create a GitHub OIDC workload identity provider in the `kumbu-connect` project and allow only this repository to impersonate the deploy service account.
+Create a GitHub OIDC workload identity provider in the `kumbuconnect1` project and allow only this repository to impersonate the deploy service account.
 
 Use the resulting provider resource name as `GCP_WORKLOAD_IDENTITY_PROVIDER`.
+
+After `gh auth login`, you can publish the two repository secrets with:
+
+```bash
+./set_github_actions_repo_secrets.sh
+```
 
 ## Deploy Flow
 
@@ -56,10 +69,8 @@ This keeps CI independent from any local `~/.config/gcloud` state.
 
 ## Remaining Manual Work
 
-Cloud-side setup is still required once because current local Kumbu admin tokens are stale. After a Kumbu-owned admin re-auth, finish these steps in the `kumbu-connect` project:
+Cloud-side setup is already in place for `kumbuconnect1`; the remaining manual steps are:
 
-1. create the deploy service account
-2. bind the required IAM roles
-3. create the GitHub workload identity provider
-4. add the two GitHub repository secrets
-5. test the workflow with `workflow_dispatch`
+1. authenticate GitHub CLI with `gh auth login`
+2. run `./set_github_actions_repo_secrets.sh`
+3. test the workflow with `workflow_dispatch`

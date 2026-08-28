@@ -647,6 +647,13 @@ bookkeeping-table__col--text
             <div class="bk-doc-card__layout{% if not item.has_image %} bk-doc-card__layout--full{% endif %}">
               <div class="bk-doc-card__detail">
                 <p class="bk-doc-card__summary">{{ document.summary_text or 'No summary was generated.' }}</p>
+                {% if item.is_narrative %}
+                <div class="bk-doc-card__meta-row">
+                  <span><strong>Read as:</strong> Narrative report</span>
+                  <span><strong>Profile sections:</strong> {{ item.narrative_section_count }}</span>
+                  <span><strong>Source File:</strong> {{ 'Retained' if item.has_source_file else 'Discarded after extraction' }}</span>
+                </div>
+                {% else %}
                 <div class="bk-doc-card__meta-row">
                   <span><strong>Date:</strong> {{ document.document_date or 'Unknown' }}</span>
                   <span><strong>Workbook Month:</strong> {{ item.workspace_period_label or document.workspace_period_key or 'Undated' }}</span>
@@ -659,6 +666,7 @@ bookkeeping-table__col--text
                   <span>Expenses: KSh {{ '%.2f'|format(document.total_expenses or 0) }}</span>
                   <span>Net: KSh {{ '%.2f'|format(document.net_amount or 0) }}</span>
                 </div>
+                {% endif %}
 
                 {% if item.extraction_notes %}
                 <p class="bk-doc-card__notes"><strong>Extraction Notes:</strong> {{ item.extraction_notes }}</p>

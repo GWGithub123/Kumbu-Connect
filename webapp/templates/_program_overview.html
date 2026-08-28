@@ -1,0 +1,182 @@
+{# Program overview: a standardized viewer over fluid program facts.
+
+   Programs come from extracted reports, flagship copy, and owner-uploaded
+   photos. Each program keeps the same chrome (picker, photos, detail
+   carousel) while the slides themselves stay document-shaped. #}
+{% from "_narrative_profile.html" import render_field, entry_status %}
+
+
+{% macro render_program_overview(programs, cbo, can_manage=false, from_dashboard=false, selected_key='') %}
+{% set programs = programs or [] %}
+{% set can_manage = can_manage|default(false) %}
+{% set selected_keys = programs|map(attribute='key')|list %}
+{% set active_key = selected_key if selected_key in selected_keys else (selected_keys[0] if selected_keys else '') %}
+{% if programs or can_manage %}
+<section class="po" id="program-overview" data-program-overview>
+  <header class="po__intro">
+    <span class="po__eyebrow">Programs</span>
+    <div class="po__intro-copy">
+      <h2 class="po__title">Program Overview</h2>
+      <p class="po__lede">
+        {% if programs|length == 1 %}
+          One program drawn from uploaded reports and photos. Switch slides to read the extracted detail.
+        {% elif programs %}
+          {{ programs|length }} programs organised from uploaded reports and photos. Select a program, then page through its details.
+        {% else %}
+          Name a program and add photos to start grouping the fluid profile around the work itself.
+        {% endif %}
+      </p>
+    </div>
+  </header>
+
+  {% if programs %}
+  <div class="po__picker" role="tablist" aria-label="Programs">
+    {% for program in programs %}
+    <button
+      type="button"
+      class="po__chip{% if program.key == active_key %} is-active{% endif %}"
+      role="tab"
+      id="program-tab-{{ program.key }}"
+      data-program-tab="{{ program.key }}"
+      aria-controls="program-panel-{{ program.key }}"
+      aria-selected="{{ 'true' if program.key == active_key else 'false' }}"
+    >
+      <span class="po__chip-name">{{ program.name }}</span>
+      {{ entry_status(program.status) }}
+    </button>
+    {% endfor %}
+  </div>
+
+  {% for program in programs %}
+  {% set is_active = program.key == active_key %}
+  <article
+    class="po__panel{% if is_active %} is-active{% endif %}"
+    id="program-panel-{{ program.key }}"
+    data-program-panel="{{ program.key }}"
+    role="tabpanel"
+    aria-labelledby="program-tab-{{ program.key }}"
+    {% if not is_active %}hidden{% endif %}
+  >
+    <div class="po__stage">
+      <div class="po__photos" data-program-carousel="photos">
+        <div class="po__photos-frame">
+          {% if program.photos %}
+            {% for photo in program.photos %}
+            <figure
+              class="po__photo{% if loop.first %} is-active{% endif %}"
+              data-program-slide
+              {% if not loop.first %}hidden{% endif %}
+            >
+              <button type="button" class="po__photo-open" data-program-lightbox="{{ url_for('main.cbo_program_photo', slug=cbo.slug, photo_id=photo.id) }}" data-program-lightbox-label="{{ photo.filename }}">
+                <img src="{{ url_for('main.cbo_program_photo', slug=cbo.slug, photo_id=photo.id) }}" alt="{{ photo.filename }}">
+              </button>
+              {% if can_manage %}
+              <form method="POST" action="{{ url_for('main.delete_program_photo', cbo_id=cbo.id, photo_id=photo.id) }}" class="po__photo-delete" onsubmit="return confirm('Remove this program photo?');">
+                {% if from_dashboard %}<input type="hidden" name="from_dashboard" value="1">{% endif %}
+                <button type="submit" aria-label="Remove photo">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </form>
+              {% endif %}
+            </figure>
+            {% endfor %}
+          {% else %}
+            <div class="po__photo-empty">
+              <i class="fas fa-images" aria-hidden="true"></i>
+              <p>No photos yet for this program.</p>
+            </div>
+          {% endif %}
+
+          {% if program.photos|length > 1 %}
+          <button type="button" class="po__arrow po__arrow--prev" data-program-prev aria-label="Previous photo">
+            <i class="fas fa-chevron-left"></i>
+          </button>
+          <button type="button" class="po__arrow po__arrow--next" data-program-next aria-label="Next photo">
+            <i class="fas fa-chevron-right"></i>
+          </button>
+          {% endif %}
+        </div>
+
+        {% if program.photos|length > 1 %}
+        <p class="po__counter" data-program-counter aria-live="polite"></p>
+        {% endif %}
+
+        {% if can_manage %}
+        <form method="POST" action="{{ url_for('main.upload_program_photos', cbo_id=cbo.id) }}" enctype="multipart/form-data" class="po__upload">
+          <input type="hidden" name="program_key" value="{{ program.key }}">
+          {% if from_dashboard %}<input type="hidden" name="from_dashboard" value="1">{% endif %}
+          <label class="po__upload-btn">
+            <i class="fas fa-camera"></i>
+            <span>Add photos</span>
+            <input type="file" name="program_photos" accept="image/*" multiple hidden data-program-autosubmit>
+          </label>
+        </form>
+        {% endif %}
+      </div>
+
+      <div class="po__details" data-program-carousel="details">
+        <div class="po__details-toolbar">
+          <p class="po__details-label" data-program-detail-label>
+            {{ (program.details[0].label if program.details else 'Overview') }}
+          </p>
+          <div class="po__details-nav">
+            {% if program.details|length > 1 %}
+            <button type="button" class="po__arrow po__arrow--ghost" data-program-prev aria-label="Previous program detail">
+              <i class="fas fa-chevron-left"></i>
+            </button>
+            {% endif %}
+            <span class="po__counter" data-program-counter aria-live="polite">
+              {% if program.details %}1 / {{ program.details|length }}{% endif %}
+            </span>
+            {% if program.details|length > 1 %}
+            <button type="button" class="po__arrow po__arrow--ghost" data-program-next aria-label="Next program detail">
+              <i class="fas fa-chevron-right"></i>
+            </button>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="po__details-frame">
+          {% for field in program.details %}
+          <div
+            class="po__detail{% if loop.first %} is-active{% endif %}"
+            data-program-slide
+            data-program-detail-title="{{ field.label }}"
+            {% if not loop.first %}hidden{% endif %}
+          >
+            {{ render_field(field) }}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+  {% endif %}
+
+  {% if can_manage %}
+  <details class="po__add">
+    <summary>
+      <i class="fas fa-plus" aria-hidden="true"></i>
+      Add another program
+    </summary>
+    <form method="POST" action="{{ url_for('main.upload_program_photos', cbo_id=cbo.id) }}" enctype="multipart/form-data" class="po__add-form">
+      {% if from_dashboard %}<input type="hidden" name="from_dashboard" value="1">{% endif %}
+      <label class="po__add-field">
+        <span>Program name</span>
+        <input type="text" name="program_name" required maxlength="160" placeholder="e.g. Youth literacy circles">
+      </label>
+      <label class="po__upload-btn">
+        <i class="fas fa-images"></i>
+        <span>Photos (optional)</span>
+        <input type="file" name="program_photos" accept="image/*" multiple hidden>
+      </label>
+      <button type="submit" class="btn btn-primary btn-sm">
+        <i class="fas fa-check"></i> Save program
+      </button>
+    </form>
+  </details>
+  {% endif %}
+</section>
+{% endif %}
+{% endmacro %}

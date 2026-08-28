@@ -55,6 +55,7 @@ def prepare_document_bytes(filename: str, mime_type: str, file_bytes: bytes, max
             'source_bytes': file_bytes,
             'source_channel': 'pdf_upload',
             'pages': _render_pdf_pages(filename, file_bytes, max_pdf_pages),
+            'text_pages': extract_pdf_text_pages(file_bytes, max_pdf_pages),
         }
 
     if mime_type in {'image/heic', 'image/heif'} or filename.lower().endswith(('.heic', '.heif')):
@@ -99,6 +100,39 @@ def render_bookkeeping_preview(filename: str, mime_type: str, file_bytes: bytes)
         return first_page['image_bytes'], first_page['mime_type']
 
     return file_bytes, mime_type
+
+
+def extract_pdf_text_pages(file_bytes: bytes, max_pdf_pages: int) -> list[str]:
+    """Return the embedded text layer per page, empty list when the PDF is scanned.
+
+    Digitally generated reports carry a text layer that is far more faithful than
+    OCR of a rasterized page, so narrative parsing reads it directly.
+    """
+    try:
+        pdf = pdfium.PdfDocument(file_bytes)
+    except Exception:
+        return []
+
+    page_texts = []
+    try:
+        for index in range(min(len(pdf), max_pdf_pages)):
+            page = pdf[index]
+            text_page = page.get_textpage()
+            try:
+                page_texts.append(_normalize_extracted_text(text_page.get_text_range()))
+            finally:
+                text_page.close()
+                page.close()
+    except Exception:
+        return []
+    finally:
+        pdf.close()
+
+    return page_texts
+
+
+def _normalize_extracted_text(raw_text: str) -> str:
+    return '\n'.join(line.rstrip() for line in str(raw_text or '').replace('\r\n', '\n').replace('\r', '\n').split('\n')).strip()
 
 
 def _render_pdf_pages(filename: str, file_bytes: bytes, max_pdf_pages: int) -> list[dict]:

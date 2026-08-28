@@ -1,0 +1,452 @@
+{# Fluid profile renderer.
+
+   The parser classifies each fact (a person, a timeline, a quote, a set of
+   programs) and how much weight a section carries. This template owns every
+   visual decision, so an unfamiliar document still lands in a designed layout
+   rather than a wall of bullets. #}
+
+{% set _role_icons = {
+  'identity': 'fa-id-card',
+  'mission': 'fa-compass',
+  'programs': 'fa-layer-group',
+  'impact': 'fa-chart-simple',
+  'leadership': 'fa-users',
+  'partners': 'fa-handshake',
+  'financials': 'fa-coins',
+  'governance': 'fa-scale-balanced',
+  'community': 'fa-comments',
+  'challenges': 'fa-triangle-exclamation',
+  'strategy': 'fa-route',
+  'operations': 'fa-gears',
+  'other': 'fa-circle-info'
+} %}
+
+{% set _category_icons = {
+  'reach': 'fa-people-group',
+  'capacity': 'fa-hand-holding-heart',
+  'finance': 'fa-coins',
+  'governance': 'fa-scale-balanced',
+  'time': 'fa-calendar-day',
+  'other': 'fa-chart-simple'
+} %}
+
+
+{% macro entry_status(status) %}
+  {% if status %}
+    <span class="fp-status fp-status--{{ status }}">{{ status|replace('_', ' ')|title }}</span>
+  {% endif %}
+{% endmacro %}
+
+
+{% macro render_field(field) %}
+  {% set kind = field.get('kind') or 'statement' %}
+  {# A label with nothing beneath it reads as a broken card, so drop the field. #}
+  {% if field.get('value') or field.get('items') or field.get('entries') %}
+  <div class="fp-field fp-field--{{ kind }}">
+    {% if kind != 'quote' %}
+      <p class="fp-field__label">{{ field.label }}</p>
+    {% endif %}
+
+    {% if kind == 'quote' %}
+      <blockquote class="fp-quote">
+        <i class="fas fa-quote-left" aria-hidden="true"></i>
+        <p>{{ field.value }}</p>
+        <cite>{{ field.label }}</cite>
+      </blockquote>
+
+    {% elif kind == 'metric' %}
+      <p class="fp-field__metric">{{ field.value }}</p>
+
+    {% elif kind == 'tags' %}
+      <div class="fp-tags">
+        {% for item in field.get('items') or [] %}
+          <span class="fp-tag">{{ item }}</span>
+        {% endfor %}
+      </div>
+
+    {% elif kind == 'list' %}
+      <ul class="fp-list">
+        {% for item in field.get('items') or [] %}
+          <li><i class="fas fa-circle-check" aria-hidden="true"></i><span>{{ item }}</span></li>
+        {% endfor %}
+      </ul>
+
+    {% elif kind == 'people' %}
+      <ul class="fp-people">
+        {% for entry in field.get('entries') or [] %}
+          <li class="fp-person">
+            <span class="fp-person__avatar" aria-hidden="true">{{ (entry.title or '?')[0]|upper }}</span>
+            <div class="fp-person__body">
+              <p class="fp-person__name">{{ entry.title }}</p>
+              {% if entry.get('subtitle') %}<p class="fp-person__role">{{ entry.subtitle }}</p>{% endif %}
+              {% if entry.get('detail') %}<p class="fp-person__detail">{{ entry.detail }}</p>{% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+
+    {% elif kind == 'timeline' %}
+      <ol class="fp-timeline">
+        {% for entry in field.get('entries') or [] %}
+          <li class="fp-timeline__item">
+            <span class="fp-timeline__marker" aria-hidden="true"></span>
+            <div class="fp-timeline__body">
+              {% if entry.get('date') %}<span class="fp-timeline__date">{{ entry.date }}</span>{% endif %}
+              <p class="fp-timeline__title">{{ entry.title }}</p>
+              {% if entry.get('detail') %}<p class="fp-timeline__detail">{{ entry.detail }}</p>{% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+
+    {% elif kind == 'entries' %}
+      <div class="fp-entries">
+        {% for entry in field.get('entries') or [] %}
+          <article class="fp-entry{% if entry.get('status') %} fp-entry--{{ entry.status }}{% endif %}">
+            <header class="fp-entry__header">
+              <p class="fp-entry__title">{{ entry.title }}</p>
+              {{ entry_status(entry.get('status')) }}
+            </header>
+            {% if entry.get('subtitle') %}<p class="fp-entry__subtitle">{{ entry.subtitle }}</p>{% endif %}
+            {% if entry.get('detail') %}<p class="fp-entry__detail">{{ entry.detail }}</p>{% endif %}
+          </article>
+        {% endfor %}
+      </div>
+
+    {% elif field.value|length > 210 %}
+      {# Clamped rather than truncated, so expanding continues the same
+         paragraph. This can't use <details>: a closed one hides its children
+         outright, which would leave a toggle above no text at all. #}
+      <div class="fp-readmore" data-readmore>
+        <p class="fp-field__text">{{ field.value }}</p>
+        <button type="button" class="fp-readmore__btn" data-readmore-toggle aria-expanded="false"></button>
+      </div>
+
+    {% else %}
+      <p class="fp-field__text">{{ field.value }}</p>
+    {% endif %}
+  </div>
+  {% endif %}
+{% endmacro %}
+
+
+{# One panel per profile domain. Several document headings can land in the same
+   panel, so each keeps its own sub-heading only when the panel holds more than
+   one of them. #}
+{% macro render_panel(panel) %}
+  {% set role = panel.get('role') or 'other' %}
+  <article class="fp-panel fp-panel--{{ role }}{% if panel.get('wide') %} fp-panel--wide{% endif %}">
+    <header class="fp-panel__header">
+      <span class="fp-panel__icon" aria-hidden="true"><i class="fas {{ _role_icons.get(role, 'fa-circle-info') }}"></i></span>
+      <h3 class="fp-panel__title">{{ panel.title }}</h3>
+    </header>
+
+    {% for group in panel.get('groups') or [] %}
+    <div class="fp-panel__group">
+      {% if panel.get('show_headings') and group.get('heading') %}
+        <p class="fp-panel__subheading">{{ group.heading }}</p>
+      {% endif %}
+      {% if group.get('takeaway') %}
+        <p class="fp-panel__takeaway">{{ group.takeaway }}</p>
+      {% endif %}
+      <div class="fp-panel__body">
+        {% for field in group.get('fields') or [] %}
+          {{ render_field(field) }}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </article>
+{% endmacro %}
+
+
+{% macro render_narrative_profile(narrative) %}
+  {% set sections = narrative.get('sections') or [] %}
+  {% set metrics = narrative.get('metrics') or [] %}
+  {% set assessment = narrative.get('assessment') or {} %}
+  {% set readiness = assessment.get('readiness') or {} %}
+  {% set dimensions = readiness.get('dimensions') or [] %}
+  {% set strengths = assessment.get('strengths') or [] %}
+  {% set risks = assessment.get('risks') or [] %}
+  {% set capital_needs = assessment.get('capital_needs') or [] %}
+  {% set headline_metrics = metrics|selectattr('emphasis', 'equalto', 'headline')|list %}
+  {% set other_metrics = metrics|rejectattr('emphasis', 'equalto', 'headline')|list %}
+  {% set panels = narrative.get('panels') or [] %}
+  {% set panel_bands = narrative.get('panel_bands') or [] %}
+
+  <div class="fp">
+
+    {# ── Funder brief: positioning plus an at-a-glance readiness ring ── #}
+    {% if narrative.get('headline') or narrative.get('summary') or readiness.get('score') %}
+    <section class="fp-hero">
+      <div class="fp-hero__intro">
+        <span class="fp-eyebrow">Funder Brief</span>
+        {% if narrative.get('headline') %}
+          <p class="fp-hero__headline">{{ narrative.headline }}</p>
+        {% endif %}
+        {% if narrative.get('summary') %}
+          <p class="fp-hero__summary">{{ narrative.summary }}</p>
+        {% endif %}
+        {% if narrative.get('mission') %}
+          <p class="fp-hero__mission"><span>Mission</span>{{ narrative.mission }}</p>
+        {% endif %}
+      </div>
+
+      {% if readiness.get('score') %}
+      <div class="fp-hero__score">
+        <div class="fp-ring" style="--fp-ring-value: {{ readiness.score }}">
+          <div class="fp-ring__inner">
+            <span class="fp-ring__value">{{ readiness.score }}</span>
+            <span class="fp-ring__max">/ 100</span>
+          </div>
+        </div>
+        <p class="fp-ring__label">Investment Readiness</p>
+        {% if readiness.get('rationale') %}
+          <p class="fp-ring__rationale">{{ readiness.rationale }}</p>
+        {% endif %}
+      </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {# ── Every stated figure, with the funder-critical ones enlarged ── #}
+    {% if metrics %}
+    <section class="fp-metrics">
+      {% for metric in headline_metrics + other_metrics %}
+      <div class="fp-metric fp-metric--{{ metric.get('category', 'other') }}{% if metric.get('emphasis') == 'headline' %} fp-metric--lead{% endif %}"{% if metric.get('context') %} title="{{ metric.context }}"{% endif %}>
+        <span class="fp-metric__icon" aria-hidden="true"><i class="fas {{ _category_icons.get(metric.get('category'), 'fa-chart-simple') }}"></i></span>
+        <span class="fp-metric__value">{{ metric.value }}</span>
+        {% if metric.get('unit') %}<span class="fp-metric__unit">{{ metric.unit }}</span>{% endif %}
+        <span class="fp-metric__label">{{ metric.label }}</span>
+      </div>
+      {% endfor %}
+    </section>
+
+    {% set explained_metrics = metrics|selectattr('context')|list %}
+    {% if explained_metrics %}
+    <details class="fp-disclosure fp-disclosure--block">
+      <summary>What these numbers mean ({{ explained_metrics|length }})</summary>
+      <dl class="fp-notes">
+        {% for metric in explained_metrics %}
+        <div class="fp-notes__row">
+          <dt>{{ metric.label }} <span>{{ metric.value }}{% if metric.get('unit') %} {{ metric.unit }}{% endif %}</span></dt>
+          <dd>{{ metric.context }}</dd>
+        </div>
+        {% endfor %}
+      </dl>
+    </details>
+    {% endif %}
+    {% endif %}
+
+    {# ── Portfolio mix, counted from every status-bearing entry in the document ── #}
+    {% set status_ns = namespace(values=[]) %}
+    {% for section in sections %}
+      {% for field in section.get('fields') or [] %}
+        {% for entry in field.get('entries') or [] %}
+          {% if entry.get('status') %}{% set status_ns.values = status_ns.values + [entry.status] %}{% endif %}
+        {% endfor %}
+      {% endfor %}
+    {% endfor %}
+    {% set ongoing_count = status_ns.values|select('equalto', 'ongoing')|list|length %}
+    {% set planned_count = status_ns.values|select('equalto', 'planned')|list|length %}
+    {% set completed_count = status_ns.values|select('equalto', 'completed')|list|length %}
+    {% set at_risk_count = status_ns.values|select('equalto', 'at_risk')|list|length %}
+
+    {% if status_ns.values|length >= 2 %}
+    <section class="fp-portfolio">
+      <header class="fp-block__header">
+        <h3><i class="fas fa-chart-pie" aria-hidden="true"></i> Portfolio Mix</h3>
+        <p>{{ status_ns.values|length }} initiatives described in this document.</p>
+      </header>
+      <div class="fp-portfolio__layout">
+        <div class="fp-portfolio__chart">
+          <canvas id="narrativePortfolioChart"></canvas>
+        </div>
+        <ul class="fp-legend">
+          {% for label, count, key in [
+            ('Ongoing', ongoing_count, 'ongoing'),
+            ('Planned', planned_count, 'planned'),
+            ('Completed', completed_count, 'completed'),
+            ('At risk', at_risk_count, 'at_risk')
+          ] %}
+            {% if count %}
+            <li class="fp-legend__item">
+              <span class="fp-legend__swatch fp-legend__swatch--{{ key }}" aria-hidden="true"></span>
+              <span class="fp-legend__label">{{ label }}</span>
+              <span class="fp-legend__count">{{ count }}</span>
+            </li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      </div>
+      <script id="narrative-portfolio-data" type="application/json">{{ {'ongoing': ongoing_count, 'planned': planned_count, 'completed': completed_count, 'at_risk': at_risk_count}|tojson }}</script>
+    </section>
+    {% endif %}
+
+    {# ── Readiness breakdown: radar for shape, bars for the reasoning ── #}
+    {% if dimensions|selectattr('score')|list %}
+    <section class="fp-readiness">
+      <header class="fp-block__header">
+        <h3><i class="fas fa-gauge-high" aria-hidden="true"></i> Readiness Breakdown</h3>
+        <p>Scored only against evidence present in the uploaded document.</p>
+      </header>
+      <div class="fp-readiness__layout">
+        <div class="fp-readiness__chart">
+          <canvas id="narrativeReadinessChart"></canvas>
+        </div>
+        <ul class="fp-dimensions">
+          {% for dimension in dimensions %}
+          <li class="fp-dimension">
+            <div class="fp-dimension__head">
+              <span class="fp-dimension__name">{{ dimension.label }}</span>
+              <span class="fp-dimension__score">{{ dimension.score }}</span>
+            </div>
+            <div class="fp-dimension__track">
+              <div class="fp-dimension__fill{% if dimension.score < 34 %} is-low{% elif dimension.score < 67 %} is-mid{% endif %}" style="width: {{ dimension.score }}%"></div>
+            </div>
+            {% if dimension.get('rationale') %}
+              <p class="fp-dimension__rationale">{{ dimension.rationale }}</p>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </section>
+    {% endif %}
+
+    {# ── The actual decision surface for a funder ── #}
+    {% if strengths or risks or capital_needs %}
+    <section class="fp-assessment">
+      {% if strengths %}
+      <div class="fp-verdict fp-verdict--strength">
+        <header><i class="fas fa-circle-check" aria-hidden="true"></i> Strengths</header>
+        <ul>
+          {% for point in strengths %}
+          <li>
+            <p class="fp-verdict__title">{{ point.title }}</p>
+            {% if point.get('detail') %}<p class="fp-verdict__detail">{{ point.detail }}</p>{% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if risks %}
+      <div class="fp-verdict fp-verdict--risk">
+        <header><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Risks</header>
+        <ul>
+          {% for point in risks %}
+          <li>
+            <p class="fp-verdict__title">
+              {{ point.title }}
+              <span class="fp-severity fp-severity--{{ point.get('severity', 'medium') }}">{{ point.get('severity', 'medium')|title }}</span>
+            </p>
+            {% if point.get('detail') %}<p class="fp-verdict__detail">{{ point.detail }}</p>{% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if capital_needs %}
+      <div class="fp-verdict fp-verdict--need">
+        <header><i class="fas fa-hand-holding-dollar" aria-hidden="true"></i> Capital Needs</header>
+        <ul>
+          {% for point in capital_needs %}
+          <li>
+            <p class="fp-verdict__title">{{ point.title }}</p>
+            {% if point.get('detail') %}<p class="fp-verdict__detail">{{ point.detail }}</p>{% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {# ── The organisation's story: what it has done, and what it plans next ── #}
+    {% set journey = narrative.get('journey') or {} %}
+    {% set past_steps = journey.get('past') or [] %}
+    {% set future_steps = journey.get('future') or [] %}
+    {% if past_steps or future_steps %}
+    <section class="fp-journey">
+      <header class="fp-block__header">
+        <h3><i class="fas fa-route" aria-hidden="true"></i> Journey &amp; Roadmap</h3>
+        <p>Where the organisation has been, and exactly where it intends to go. Expand a step for the specifics.</p>
+      </header>
+      {# One continuous rail reads as a single story. Stops alternate above and
+         below the axis so each card gets room without stretching the rail. #}
+      <ol class="fp-rail" role="list">
+        {% for step in past_steps %}
+        <li class="fp-rail__stop fp-rail__stop--{{ 'up' if loop.index is odd else 'down' }} fp-rail__stop--{{ step.get('status', 'done') }}">
+          <article class="fp-rail__card">
+            <div class="fp-rail__meta">
+              {% if step.get('when') %}<span class="fp-rail__when">{{ step.when }}</span>{% endif %}
+              <span class="fp-status fp-status--{{ step.get('status', 'done') }}">{{ step.get('status', 'done')|replace('_', ' ')|title }}</span>
+            </div>
+            <p class="fp-rail__title">{{ step.title }}</p>
+            {% if step.get('summary') %}<p class="fp-rail__summary">{{ step.summary }}</p>{% endif %}
+            {% if step.get('detail') %}
+            <details class="fp-disclosure"><summary>Details</summary><p>{{ step.detail }}</p></details>
+            {% endif %}
+          </article>
+          <span class="fp-rail__node" aria-hidden="true"></span>
+        </li>
+        {% endfor %}
+
+        {% if past_steps and future_steps %}
+        <li class="fp-rail__stop fp-rail__stop--now">
+          <span class="fp-rail__nowmark" aria-hidden="true"></span>
+          <span class="fp-rail__nowlabel">Today</span>
+        </li>
+        {% endif %}
+
+        {% set offset = past_steps|length + (1 if past_steps and future_steps else 0) %}
+        {% for step in future_steps %}
+        <li class="fp-rail__stop fp-rail__stop--{{ 'up' if (loop.index + offset) is odd else 'down' }} fp-rail__stop--{{ step.get('status', 'planned') }} fp-rail__stop--ahead">
+          <article class="fp-rail__card">
+            <div class="fp-rail__meta">
+              {% if step.get('when') %}<span class="fp-rail__when">{{ step.when }}</span>{% endif %}
+              <span class="fp-status fp-status--{{ step.get('status', 'planned') }}">{{ step.get('status', 'planned')|replace('_', ' ')|title }}</span>
+            </div>
+            <p class="fp-rail__title">{{ step.title }}</p>
+            {% if step.get('summary') %}<p class="fp-rail__summary">{{ step.summary }}</p>{% endif %}
+            {% if step.get('detail') %}
+            <details class="fp-disclosure"><summary>Details</summary><p>{{ step.detail }}</p></details>
+            {% endif %}
+          </article>
+          <span class="fp-rail__node" aria-hidden="true"></span>
+        </li>
+        {% endfor %}
+      </ol>
+      <p class="fp-rail__hint"><i class="fas fa-arrows-left-right" aria-hidden="true"></i> Scroll sideways to follow the full timeline</p>
+    </section>
+    {% endif %}
+
+    {# ── Fixed panel set, banded into the order a funder reads them ── #}
+    {% for band in panel_bands %}
+    <section class="fp-band fp-band--{{ band.key }}">
+      <header class="fp-band__header">
+        <span class="fp-band__icon" aria-hidden="true"><i class="fas {{ band.icon }}"></i></span>
+        <h3 class="fp-band__title">{{ band.title }}</h3>
+        <span class="fp-band__rule" aria-hidden="true"></span>
+        <span class="fp-band__count">{{ band.panels|length }}</span>
+      </header>
+      <div class="fp-panels" style="--fp-cols: {{ band.get('columns', 3) }}">
+        {% for panel in band.panels %}
+          {{ render_panel(panel) }}
+        {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+
+    {% if narrative.get('source_filename') %}
+      <p class="fp-source"><i class="fas fa-file-lines" aria-hidden="true"></i> Parsed from {{ narrative.source_filename }}</p>
+    {% endif %}
+
+    {% if dimensions %}
+    <script id="narrative-readiness-data" type="application/json">{{ dimensions|map(attribute='label')|list|tojson }}</script>
+    <script id="narrative-readiness-scores" type="application/json">{{ dimensions|map(attribute='score')|list|tojson }}</script>
+    {% endif %}
+  </div>
+{% endmacro %}

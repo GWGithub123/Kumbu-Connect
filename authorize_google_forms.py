@@ -29,6 +29,9 @@ SCOPES = [
 ]
 AUTH_URI = 'https://accounts.google.com/o/oauth2/v2/auth'
 TOKEN_URI = 'https://oauth2.googleapis.com/token'
+DEFAULT_REDIRECT_HOST = os.environ.get('GOOGLE_FORMS_AUTH_REDIRECT_HOST', '127.0.0.1').strip() or '127.0.0.1'
+DEFAULT_REDIRECT_PORT = int(os.environ.get('GOOGLE_FORMS_AUTH_REDIRECT_PORT', '8765'))
+DEFAULT_REDIRECT_PATH = os.environ.get('GOOGLE_FORMS_AUTH_REDIRECT_PATH', '/google/forms/oauth/callback').strip() or '/google/forms/oauth/callback'
 
 
 class _OAuthCallbackState:
@@ -64,10 +67,17 @@ def _make_handler(state: _OAuthCallbackState):
     return OAuthCallbackHandler
 
 
+def _redirect_uri() -> str:
+    path = DEFAULT_REDIRECT_PATH
+    if not path.startswith('/'):
+        path = f'/{path}'
+    return f'http://{DEFAULT_REDIRECT_HOST}:{DEFAULT_REDIRECT_PORT}{path}'
+
+
 def _authorize_via_browser(client_id: str, client_secret: str = '') -> dict[str, object]:
     state = _OAuthCallbackState()
-    server = HTTPServer(('127.0.0.1', 0), _make_handler(state))
-    redirect_uri = f'http://127.0.0.1:{server.server_port}/'
+    server = HTTPServer((DEFAULT_REDIRECT_HOST, DEFAULT_REDIRECT_PORT), _make_handler(state))
+    redirect_uri = _redirect_uri()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
@@ -86,6 +96,7 @@ def _authorize_via_browser(client_id: str, client_secret: str = '') -> dict[str,
     })}'
 
     print(f'Please visit this URL to authorize this application: {auth_url}')
+    print(f'Configured redirect URI: {redirect_uri}')
     try:
         webbrowser.open(auth_url)
     except Exception:
@@ -151,6 +162,9 @@ def main() -> int:
     if not token_path:
         print('GOOGLE_OAUTH_TOKEN_JSON is not set.')
         return 1
+
+    print('Google Forms authorization settings:')
+    print(f'  Redirect URI: {_redirect_uri()}')
 
     if client_secret_path:
         if not os.path.exists(client_secret_path):

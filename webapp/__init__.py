@@ -54,6 +54,7 @@ def create_app() -> Flask:
     os.makedirs(app.config['GOOGLE_FORM_UPLOAD_DIR'], exist_ok=True)
     os.makedirs(app.config['FUNDING_AUDIT_UPLOAD_DIR'], exist_ok=True)
     os.makedirs(app.config['CONTACT_UPLOAD_DIR'], exist_ok=True)
+    os.makedirs(app.config['PROGRAM_PHOTO_UPLOAD_DIR'], exist_ok=True)
 
     db.init_app(app)
     login_manager.init_app(app)
@@ -73,6 +74,7 @@ def create_app() -> Flask:
 
 def _ensure_runtime_schema() -> None:
     inspector = inspect(db.engine)
+    dialect_name = db.engine.dialect.name
     table_columns = {
         'users': {
             'account_status': "ALTER TABLE users ADD COLUMN account_status VARCHAR(20) NOT NULL DEFAULT 'active'",
@@ -111,6 +113,14 @@ def _ensure_runtime_schema() -> None:
                 if column_name in existing_columns:
                     continue
                 connection.execute(text(statement))
+
+        if dialect_name.startswith('postgresql') and 'bookkeeping_documents' in inspector.get_table_names():
+            connection.execute(text(
+                'ALTER TABLE bookkeeping_documents ALTER COLUMN upload_batch_id TYPE VARCHAR(255)'
+            ))
+            connection.execute(text(
+                'ALTER TABLE bookkeeping_documents ALTER COLUMN client_submission_id TYPE VARCHAR(255)'
+            ))
 
         if 'users' in inspector.get_table_names():
             connection.execute(text(

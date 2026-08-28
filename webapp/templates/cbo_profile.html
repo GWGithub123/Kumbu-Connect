@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% from "_contact_macros.html" import render_cbo_contact_inbox, render_funder_contact_modal, render_funder_contact_panel %}
+{% from "_narrative_profile.html" import render_narrative_profile %}
+{% from "_program_overview.html" import render_program_overview %}
 {% block title %}{{ profile.get('name', cbo.name) }} — Kumbu Connect{% endblock %}
 
 {% block head %}
@@ -216,11 +218,29 @@
           <div class="overview-split overview-split--two">
             <div class="overview-panel">
               <h2><i class="fas fa-users-cog"></i> Leadership</h2>
-              <ul class="leadership-list">
-                <li><i class="fas fa-user-tie"></i> <strong>Chair:</strong> {{ lead.get('chairperson', cbo.chairperson) or '—' }}</li>
-                <li><i class="fas fa-user-cog"></i> <strong>Director:</strong> {{ lead.get('program_director', cbo.program_director) or '—' }}</li>
-                <li><i class="fas fa-user-shield"></i> <strong>Finance:</strong> {{ lead.get('finance_lead', cbo.finance_lead) or '—' }}</li>
-              </ul>
+              {# A parsed report usually names more people than the three fixed
+                 slots can hold, so show the real roster when we have one. #}
+              {% set narrative_leaders = (profile.get('narrative_profile') or {}).get('leadership') or [] %}
+              {% if narrative_leaders %}
+                <ul class="fp-people fp-people--inline">
+                  {% for person in narrative_leaders %}
+                  <li class="fp-person">
+                    <span class="fp-person__avatar" aria-hidden="true">{{ (person.get('name') or '?')[0]|upper }}</span>
+                    <div class="fp-person__body">
+                      <p class="fp-person__name">{{ person.get('name') }}</p>
+                      {% if person.get('role') %}<p class="fp-person__role">{{ person.role }}</p>{% endif %}
+                      {% if person.get('notes') %}<p class="fp-person__detail">{{ person.notes }}</p>{% endif %}
+                    </div>
+                  </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <ul class="leadership-list">
+                  <li><i class="fas fa-user-tie"></i> <strong>Chair:</strong> {{ lead.get('chairperson', cbo.chairperson) or '—' }}</li>
+                  <li><i class="fas fa-user-cog"></i> <strong>Director:</strong> {{ lead.get('program_director', cbo.program_director) or '—' }}</li>
+                  <li><i class="fas fa-user-shield"></i> <strong>Finance:</strong> {{ lead.get('finance_lead', cbo.finance_lead) or '—' }}</li>
+                </ul>
+              {% endif %}
               {% if profile.get('governance_note') %}
                 <p class="governance-note"><em>"{{ profile.governance_note }}"</em></p>
               {% endif %}
@@ -403,6 +423,30 @@
       </div>
     </section>
 
+    <!-- ── Parsed report detail (fields come from the uploaded document, not a fixed schema) ── -->
+    {% set narrative = profile.get('narrative_profile') or {} %}
+    {% set program_overview = narrative.get('program_overview') or [] %}
+    {% set can_manage_program_photos = can_manage_program_photos|default(own) %}
+    {% if program_overview or can_manage_program_photos %}
+    <div class="profile-section-divider" aria-hidden="true">
+      <span>Program Overview</span>
+    </div>
+    {{ render_program_overview(
+      program_overview,
+      cbo,
+      can_manage=can_manage_program_photos,
+      from_dashboard=own and not isolated_view,
+      selected_key=request.args.get('program', '')
+    ) }}
+    {% endif %}
+
+    {% if narrative.get('sections') or narrative.get('metrics') or narrative.get('assessment') %}
+    <div class="profile-section-divider" aria-hidden="true">
+      <span>Organisation Detail</span>
+    </div>
+    {{ render_narrative_profile(narrative) }}
+    {% endif %}
+
     <!-- ── ROW 3: GROWTH CHARTS (2×2 grid) ────────────────────── -->
     {% set growth_data = _safe_json_inline(cbo.growth_metrics_json) %}
     {% set growth_chart_ns = namespace(configs=profile.get('growth_charts', [])) %}
@@ -539,6 +583,135 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+// Clamp toggles for long parsed prose.
+document.addEventListener('click', function (event) {
+  const toggle = event.target.closest('[data-readmore-toggle]');
+  if (!toggle) return;
+  const wrapper = toggle.closest('[data-readmore]');
+  if (!wrapper) return;
+  const opened = wrapper.classList.toggle('is-open');
+  toggle.setAttribute('aria-expanded', opened ? 'true' : 'false');
+});
+</script>
+
+<!-- Readiness radar for the parsed report (Chart.js is loaded on demand) -->
+<script>
+(function () {
+  const labelNode = document.getElementById('narrative-readiness-data');
+  const scoreNode = document.getElementById('narrative-readiness-scores');
+  const canvas = document.getElementById('narrativeReadinessChart');
+  const portfolioNode = document.getElementById('narrative-portfolio-data');
+  if ((!labelNode || !scoreNode || !canvas) && !portfolioNode) return;
+
+  function drawReadinessRadar() {
+    if (!labelNode || !scoreNode || !canvas) return;
+
+    let labels = [];
+    let scores = [];
+    try {
+      labels = JSON.parse(labelNode.textContent || '[]');
+      scores = JSON.parse(scoreNode.textContent || '[]');
+    } catch {
+      return;
+    }
+    if (!labels.length || labels.length !== scores.length) return;
+
+    new window.Chart(canvas, {
+      type: 'radar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Readiness',
+          data: scores,
+          fill: true,
+          backgroundColor: 'rgba(13, 148, 136, 0.18)',
+          borderColor: 'rgba(13, 148, 136, 0.9)',
+          borderWidth: 2,
+          pointBackgroundColor: 'rgba(13, 148, 136, 1)',
+          pointRadius: 3,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          r: {
+            min: 0,
+            max: 100,
+            ticks: { stepSize: 25, backdropColor: 'transparent', color: '#94a3b8', font: { size: 10 } },
+            grid: { color: 'rgba(148, 163, 184, 0.25)' },
+            angleLines: { color: 'rgba(148, 163, 184, 0.25)' },
+            pointLabels: { color: '#475569', font: { size: 11, weight: '600' } },
+          },
+        },
+      },
+    });
+  }
+
+  function drawPortfolioDonut() {
+    const dataNode = document.getElementById('narrative-portfolio-data');
+    const donutCanvas = document.getElementById('narrativePortfolioChart');
+    if (!dataNode || !donutCanvas) return;
+
+    let counts;
+    try {
+      counts = JSON.parse(dataNode.textContent || '{}');
+    } catch {
+      return;
+    }
+
+    const palette = { ongoing: '#10b981', planned: '#6366f1', completed: '#64748b', at_risk: '#ef4444' };
+    const labels = [];
+    const values = [];
+    const colors = [];
+    Object.keys(palette).forEach(function (key) {
+      const count = Number(counts[key] || 0);
+      if (count > 0) {
+        labels.push(key.replace('_', ' '));
+        values.push(count);
+        colors.push(palette[key]);
+      }
+    });
+    if (!values.length) return;
+
+    new window.Chart(donutCanvas, {
+      type: 'doughnut',
+      data: { labels: labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '62%',
+        plugins: { legend: { display: false } },
+      },
+    });
+  }
+
+  function drawNarrativeCharts() {
+    drawReadinessRadar();
+    drawPortfolioDonut();
+  }
+
+  if (window.Chart) {
+    drawNarrativeCharts();
+    return;
+  }
+
+  // The growth section loads Chart.js only when it has data, so pull it in if absent.
+  const existing = document.querySelector('script[data-chartjs-loader]');
+  if (existing) {
+    existing.addEventListener('load', drawNarrativeCharts);
+    return;
+  }
+  const loader = document.createElement('script');
+  loader.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+  loader.setAttribute('data-chartjs-loader', 'true');
+  loader.addEventListener('load', drawNarrativeCharts);
+  document.head.appendChild(loader);
+})();
+</script>
+
 <!-- Chart.js for growth visualization -->
 {% set growth_data = _safe_json_inline(cbo.growth_metrics_json) %}
 {% set growth_chart_configs = profile.get('growth_charts', []) %}
@@ -795,6 +968,7 @@ function bindProfileSyncButton() {
 bindProfileSyncButton();
 initFeedbackStoryCards();
 initProfileContactModal();
+initProgramOverview();
 
 let profileRefreshTimer = 0;
 let profileRefreshInFlight = null;
@@ -840,6 +1014,124 @@ function initFeedbackStoryCards(scope = document) {
     card.dataset.feedbackBound = 'true';
     renderFeedbackStoryCard();
   });
+}
+
+function initProgramOverview(scope = document) {
+  const root = scope.querySelector('[data-program-overview]');
+  if (!root || root.dataset.programBound === 'true') {
+    return;
+  }
+  root.dataset.programBound = 'true';
+
+  const tabs = Array.from(root.querySelectorAll('[data-program-tab]'));
+  const panels = Array.from(root.querySelectorAll('[data-program-panel]'));
+
+  function showProgram(key) {
+    tabs.forEach((tab) => {
+      const isActive = tab.dataset.programTab === key;
+      tab.classList.toggle('is-active', isActive);
+      tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    panels.forEach((panel) => {
+      const isActive = panel.dataset.programPanel === key;
+      panel.classList.toggle('is-active', isActive);
+      panel.hidden = !isActive;
+    });
+    const url = new URL(window.location.href);
+    url.searchParams.set('program', key);
+    url.hash = 'program-overview';
+    window.history.replaceState({}, '', url);
+  }
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => showProgram(tab.dataset.programTab));
+  });
+
+  function bindCarousel(carousel) {
+    const slides = Array.from(carousel.querySelectorAll('[data-program-slide]'));
+    if (!slides.length) {
+      return;
+    }
+    const prevButtons = Array.from(carousel.querySelectorAll('[data-program-prev]'));
+    const nextButtons = Array.from(carousel.querySelectorAll('[data-program-next]'));
+    const counters = Array.from(carousel.querySelectorAll('[data-program-counter]'));
+    const label = carousel.querySelector('[data-program-detail-label]');
+    let activeIndex = Math.max(0, slides.findIndex((slide) => !slide.hidden));
+
+    function render() {
+      slides.forEach((slide, index) => {
+        const isActive = index === activeIndex;
+        slide.hidden = !isActive;
+        slide.classList.toggle('is-active', isActive);
+      });
+      counters.forEach((counter) => {
+        counter.textContent = `${activeIndex + 1} / ${slides.length}`;
+      });
+      if (label) {
+        label.textContent = slides[activeIndex].dataset.programDetailTitle || 'Overview';
+      }
+    }
+
+    prevButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        activeIndex = (activeIndex - 1 + slides.length) % slides.length;
+        render();
+      });
+    });
+    nextButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        activeIndex = (activeIndex + 1) % slides.length;
+        render();
+      });
+    });
+    render();
+  }
+
+  root.querySelectorAll('[data-program-carousel]').forEach(bindCarousel);
+
+  root.querySelectorAll('[data-program-autosubmit]').forEach((input) => {
+    input.addEventListener('change', () => {
+      if (input.files && input.files.length && input.form) {
+        input.form.submit();
+      }
+    });
+  });
+
+  const lightbox = document.getElementById('bkImageLightbox');
+  if (lightbox) {
+    const lbImg = lightbox.querySelector('.bk-lightbox__img');
+    const lbLabel = lightbox.querySelector('.bk-lightbox__label');
+    const closeLightbox = () => {
+      lightbox.hidden = true;
+      if (lbImg) {
+        lbImg.src = '';
+      }
+    };
+    root.querySelectorAll('[data-program-lightbox]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (lbImg) {
+          lbImg.src = button.dataset.programLightbox;
+          lbImg.alt = button.dataset.programLightboxLabel || '';
+        }
+        if (lbLabel) {
+          lbLabel.textContent = button.dataset.programLightboxLabel || '';
+        }
+        lightbox.hidden = false;
+      });
+    });
+    if (lightbox.dataset.programLightboxBound !== 'true') {
+      lightbox.dataset.programLightboxBound = 'true';
+      const closeButton = lightbox.querySelector('.bk-lightbox__close');
+      const backdrop = lightbox.querySelector('.bk-lightbox__backdrop');
+      if (closeButton) closeButton.addEventListener('click', closeLightbox);
+      if (backdrop) backdrop.addEventListener('click', closeLightbox);
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !lightbox.hidden) {
+          closeLightbox();
+        }
+      });
+    }
+  }
 }
 
 function setProfileContactModalExpanded(modalId, expanded) {

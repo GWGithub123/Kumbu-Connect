@@ -61,6 +61,18 @@ from .gemini_service import analyse_kobo_data, answer_marketplace_cbo_question, 
 from .bookkeeping_audit_service import audit_bookkeeping_document, audit_bookkeeping_group
 from .funding_audit_service import FundingAuditError, build_funding_audit_payload, observed_charitable_giving
 from .openai_bookkeeping_service import BookkeepingExtractionError, extract_bookkeeping_document, refine_extracted_bookkeeping_payload
+from .narrative_profile_service import (
+    NarrativeProfileError,
+    document_text_from_pages,
+    extract_narrative_profile,
+    find_program_photo,
+    hydrate_stored_narrative,
+    looks_like_narrative_document,
+    merge_program_lists,
+    narrative_parsing_configured,
+    narrative_payload_has_content,
+    program_key,
+)
 from .google_forms_service import (
     ADDITIONAL_TRACKING_FIELDS_TITLE,
     ANECDOTAL_STORY_TITLE,
@@ -89,6 +101,42 @@ MANAGED_CLOUDFLARED_PROCESS = None
 MANAGED_CLOUDFLARED_URL = ''
 MANAGED_CLOUDFLARED_STARTED_AT = 0.0
 DEVELOPER_SMS_ACTIVITY_RECENT_INTAKE_DAYS = 60
+INTERNAL_ONBOARDING_SOURCE_SLUG = 'kumbu-internal-onboarding-source'
+INTERNAL_ONBOARDING_SOURCE_NAME = 'Kumbu Connect Intake Source'
+
+
+def _is_internal_onboarding_source_cbo(cbo: CBO | None) -> bool:
+    return bool(cbo and str(cbo.slug or '').strip().lower() == INTERNAL_ONBOARDING_SOURCE_SLUG)
+
+
+def _visible_cbo_query():
+    return CBO.query.filter(CBO.slug != INTERNAL_ONBOARDING_SOURCE_SLUG)
+
+
+def _ensure_internal_onboarding_source_cbo() -> CBO:
+    existing = CBO.query.filter_by(slug=INTERNAL_ONBOARDING_SOURCE_SLUG).first()
+    if existing is not None:
+        return existing
+
+    onboarding_source = CBO(
+        name=INTERNAL_ONBOARDING_SOURCE_NAME,
+        slug=INTERNAL_ONBOARDING_SOURCE_SLUG,
+        kobo_connection_active=False,
+        community_feedback_enabled=False,
+        cbo_identifier='community',
+        org_type='Community-Based Organisation (CBO)',
+        focus_areas='Community-based programming',
+    )
+    db.session.add(onboarding_source)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        existing = CBO.query.filter_by(slug=INTERNAL_ONBOARDING_SOURCE_SLUG).first()
+        if existing is not None:
+            return existing
+        raise
+    return onboarding_source
 
 
 # ── Landing ───────────────────────────────────────────────────────
@@ -135,7 +183,7 @@ def marketplace():
     f_sort = sort_arg or (ai_search.get('recommended_sort') if ai_search else '') or 'name'
     ai_search_active = bool(q)
 
-    cbos = CBO.query.all()
+    cbos = _visible_cbo_query().all()
     cbo_profiles = []
     map_data_changed = False
     for cbo in cbos:
@@ -366,6 +414,7 @@ def cbo_dashboard():
         saved_by_viewer=False,
         viewer_is_funder=False,
         can_manage_bookkeeping=_can_manage_bookkeeping(cbo),
+        can_manage_program_photos=_can_manage_program_photos(cbo),
         community_feedback=community_feedback,
         bookkeeping_summary=bookkeeping_summary,
         bookkeeping_offline=_bookkeeping_offline_context(cbo),
@@ -403,6 +452,7 @@ def cbo_profile(slug):
         saved_by_viewer=saved_by_viewer,
         viewer_is_funder=viewer_is_funder,
         can_manage_bookkeeping=_can_manage_bookkeeping(cbo),
+        can_manage_program_photos=_can_manage_program_photos(cbo),
         isolated_view=isolated_view,
         embedded_layout=embedded_layout,
         community_feedback=community_feedback,
@@ -819,6 +869,172 @@ def upload_bookkeeping_documents(cbo_id):
         success_message=f'Processed {successes} bookkeeping document(s).' if successes else '',
         failure_messages=failures,
         redirect_slug=cbo.slug,
+    )
+
+
+_PROGRAM_PHOTO_MAX_FILES = 8
+_PROGRAM_PHOTO_MAX_PER_PROGRAM = 16
+
+
+@main_bp.route('/cbo/<int:cbo_id>/programs/photos', methods=['POST'])
+@login_required
+def upload_program_photos(cbo_id):
+    cbo = CBO.query.get_or_404(cbo_id)
+    if not _can_manage_program_photos(cbo):
+        abort(403)
+
+    requested_key = program_key(request.form.get('program_key') or '')
+    program_name = (request.form.get('program_name') or '').strip()
+    uploads = [upload for upload in request.files.getlist('program_photos') if upload and upload.filename]
+
+    profile = _safe_json(cbo.ai_profile_json) or {}
+    narrative = _narrative_profile_blob(profile)
+    programs = merge_program_lists(narrative.get('programs') or [], [])
+    media = narrative.get('program_media')
+    if not isinstance(media, dict):
+        media = {}
+
+    if program_name:
+        target_key = program_key(program_name)
+        if not any(item.get('key') == target_key for item in programs):
+            programs.append({
+                'key': target_key,
+                'name': program_name,
+                'description': '',
+                'beneficiaries': '',
+                'status': 'unknown',
+                'source': 'manual',
+            })
+    else:
+        target_key = requested_key
+        if target_key == 'program' and not request.form.get('program_key'):
+            flash('Select a program before uploading photos.', 'error')
+            return _program_overview_redirect(cbo)
+
+    if not uploads and not program_name:
+        flash('Choose at least one photo to upload.', 'error')
+        return _program_overview_redirect(cbo, requested_key)
+
+    if not uploads and program_name:
+        narrative['programs'] = programs
+        narrative['program_media'] = media
+        profile['narrative_profile'] = narrative
+        _persist_cbo_profile(cbo, profile)
+        flash(f'Added {program_name} to Program Overview.', 'success')
+        return _program_overview_redirect(cbo, target_key)
+
+    existing_photos = list(media.get(target_key) or [])
+    remaining = _PROGRAM_PHOTO_MAX_PER_PROGRAM - len(existing_photos)
+    if remaining <= 0:
+        flash(f'This program already has {_PROGRAM_PHOTO_MAX_PER_PROGRAM} photos.', 'error')
+        return _program_overview_redirect(cbo, target_key)
+
+    stored_photos = []
+    failures = []
+    for uploaded in uploads[: min(_PROGRAM_PHOTO_MAX_FILES, remaining)]:
+        try:
+            prepared = prepare_uploaded_document(uploaded, max_pdf_pages=1)
+            if prepared.get('source_mime_type') == 'application/pdf':
+                raise DocumentIngestionError(f'{uploaded.filename}: PDFs cannot be added as program photos.')
+            pages = prepared.get('pages') or []
+            if not pages:
+                raise DocumentIngestionError(f'{uploaded.filename}: could not read that image.')
+            page = pages[0]
+            stored = store_supporting_file(
+                cbo.id,
+                page.get('filename') or uploaded.filename or 'program-photo.jpg',
+                page['image_bytes'],
+                page.get('mime_type') or 'image/jpeg',
+                object_prefix='program_photos',
+                local_upload_dir=current_app.config.get('PROGRAM_PHOTO_UPLOAD_DIR'),
+            )
+            stored_photos.append({
+                'id': uuid.uuid4().hex,
+                'filename': page.get('filename') or uploaded.filename or 'photo',
+                'mime_type': page.get('mime_type') or 'image/jpeg',
+                'storage_backend': stored['storage_backend'],
+                'stored_path': stored['stored_path'],
+                'storage_bucket': stored.get('storage_bucket') or '',
+                'storage_object_path': stored.get('storage_object_path') or '',
+                'created_at': datetime.utcnow().isoformat(),
+            })
+        except (DocumentIngestionError, RuntimeError, OSError) as exc:
+            failures.append(str(exc).strip() or f'{uploaded.filename}: could not store that photo.')
+
+    if stored_photos:
+        media[target_key] = existing_photos + stored_photos
+        narrative['program_media'] = media
+        narrative['programs'] = programs
+        profile['narrative_profile'] = narrative
+        _persist_cbo_profile(cbo, profile)
+        flash(f'Added {len(stored_photos)} program photo(s).', 'success')
+    if failures:
+        flash(' '.join(failures), 'error')
+    return _program_overview_redirect(cbo, target_key)
+
+
+@main_bp.route('/cbo/<int:cbo_id>/programs/photos/<photo_id>/delete', methods=['POST'])
+@login_required
+def delete_program_photo(cbo_id, photo_id):
+    cbo = CBO.query.get_or_404(cbo_id)
+    if not _can_manage_program_photos(cbo):
+        abort(403)
+
+    profile = _safe_json(cbo.ai_profile_json) or {}
+    found = find_program_photo(profile, photo_id)
+    if not found:
+        flash('That program photo could not be found.', 'error')
+        return _program_overview_redirect(cbo)
+
+    target_key, photo = found
+    delete_stored_file(
+        storage_backend=photo.get('storage_backend') or 'local',
+        stored_path=photo.get('stored_path') or '',
+        storage_bucket=photo.get('storage_bucket') or '',
+        storage_object_path=photo.get('storage_object_path') or '',
+    )
+    narrative = _narrative_profile_blob(profile)
+    media = narrative.get('program_media')
+    if isinstance(media, dict):
+        remaining = [
+            item for item in (media.get(target_key) or [])
+            if str(item.get('id') or '') != str(photo_id)
+        ]
+        if remaining:
+            media[target_key] = remaining
+        else:
+            media.pop(target_key, None)
+        narrative['program_media'] = media
+        profile['narrative_profile'] = narrative
+        _persist_cbo_profile(cbo, profile)
+    flash('Program photo removed.', 'success')
+    return _program_overview_redirect(cbo, target_key)
+
+
+@main_bp.route('/cbo/<slug>/programs/photos/<photo_id>')
+@login_required
+def cbo_program_photo(slug, photo_id):
+    cbo = CBO.query.filter_by(slug=slug).first_or_404()
+    _require_feedback_access(cbo)
+    profile = _safe_json(cbo.ai_profile_json) or {}
+    found = find_program_photo(profile, photo_id)
+    if not found:
+        abort(404)
+    _photo_key, photo = found
+    try:
+        file_bytes, mime_type = get_stored_file_bytes(
+            storage_backend=photo.get('storage_backend') or 'local',
+            stored_path=photo.get('stored_path') or '',
+            mime_type=photo.get('mime_type') or 'image/jpeg',
+            storage_bucket=photo.get('storage_bucket') or '',
+            storage_object_path=photo.get('storage_object_path') or '',
+        )
+    except FileNotFoundError:
+        abort(404)
+    return send_file(
+        BytesIO(file_bytes),
+        mimetype=mime_type,
+        download_name=photo.get('filename') or f'program-photo-{photo_id}',
     )
 
 
@@ -1533,6 +1749,7 @@ def rescan_bookkeeping_document(document_id):
             source_channel=document.source_channel,
             uploaded_by_user_id=current_user.id,
             existing_document=document,
+            text_pages=prepared.get('text_pages'),
         )
         summary = _refresh_cbo_operational_profile(cbo, allow_claude=True)
         db.session.commit()
@@ -1908,7 +2125,7 @@ def api_cbo_ai_followup(slug):
 def community_feedback_admin():
     _require_developer_access()
 
-    cbos = CBO.query.order_by(CBO.name.asc()).all()
+    cbos = _visible_cbo_query().order_by(CBO.name.asc()).all()
     cbo_cards = []
     total_subscribers = 0
     total_responses = 0
@@ -1979,7 +2196,7 @@ def bookkeeping_admin():
     cbo_id_arg = request.args.get('cbo_id', '').strip()
     selected_cbo_id = int(cbo_id_arg) if cbo_id_arg.isdigit() else None
 
-    cbos = CBO.query.order_by(CBO.name.asc()).all()
+    cbos = _visible_cbo_query().order_by(CBO.name.asc()).all()
     documents = BookkeepingDocument.query.order_by(BookkeepingDocument.created_at.desc()).all()
     filtered_documents = []
     document_types = set()
@@ -2211,7 +2428,7 @@ def update_community_feedback_settings(cbo_id):
     enabled = request.form.get('community_feedback_enabled') == 'on'
 
     if sms_keyword:
-        for other in CBO.query.filter(CBO.id != cbo.id).all():
+        for other in _visible_cbo_query().filter(CBO.id != cbo.id).all():
             if get_cbo_keyword(other) == sms_keyword:
                 flash(f'The SMS keyword {sms_keyword} is already in use by {other.name}.', 'danger')
                 return redirect(url_for('main.community_feedback_cbo_detail', cbo_id=cbo.id))
@@ -2398,6 +2615,35 @@ def _compute_growth_rate(monthly_data: list, field: str) -> float:
     if prior == 0:
         return 0.0
     return round((recent - prior) / prior * 100, 1)
+
+
+NARRATIVE_DOCUMENT_TYPE = 'narrative_report'
+
+# Names intake writes into leadership slots when it has no real person yet.
+_LEADERSHIP_PLACEHOLDER_VALUES = {
+    'kumbu connect',
+    'owner',
+    'admin',
+    'administrator',
+    'n/a',
+    'none',
+    'unknown',
+    '—',
+    '-',
+}
+
+# Seed values the app writes when it has no real data yet, so a parsed report may replace them.
+_PLACEHOLDER_PROFILE_VALUES = {
+    'kenya',
+    'community',
+    'unknown',
+    '—',
+    '-',
+    'community-based organisation (cbo)',
+    'community-based organization (cbo)',
+    'rural livelihood, subsistence agriculture, youth',
+    'community development, local service delivery',
+}
 
 
 def _apply_profile_fields(cbo: CBO, profile: dict):
@@ -3676,7 +3922,7 @@ def _resolve_cbo_profile_snapshot(cbo: CBO) -> tuple[dict, dict]:
     profile = _safe_json(cbo.ai_profile_json)
 
     if not _profile_bookkeeping_snapshot_is_stale(cbo, profile, bookkeeping_summary):
-        return profile, bookkeeping_summary
+        return _with_hydrated_narrative(profile), bookkeeping_summary
 
     try:
         bookkeeping_summary = _refresh_cbo_operational_profile(
@@ -3696,7 +3942,20 @@ def _resolve_cbo_profile_snapshot(cbo: CBO) -> tuple[dict, dict]:
         profile = _safe_json(cbo.ai_profile_json)
         bookkeeping_summary = _bookkeeping_summary(cbo)
 
-    return profile, bookkeeping_summary
+    return _with_hydrated_narrative(profile), bookkeeping_summary
+
+
+def _with_hydrated_narrative(profile: dict) -> dict:
+    """Render-time only: repair narrative tags on profiles stored by older schemas."""
+    if not isinstance(profile, dict):
+        return {}
+
+    hydrated = dict(profile)
+    narrative = hydrated.get('narrative_profile')
+    if not isinstance(narrative, dict):
+        narrative = {}
+    hydrated['narrative_profile'] = hydrate_stored_narrative(narrative, profile=hydrated)
+    return hydrated
 
 
 def _require_funder():
@@ -3883,6 +4142,36 @@ def _user_owns_cbo(user, cbo: CBO) -> bool:
     return bool(_user_has_cbo_role(user) and getattr(user, 'cbo_id', None) == cbo.id)
 
 
+def _can_manage_program_photos(cbo: CBO) -> bool:
+    return bool(
+        current_user.is_authenticated
+        and (_has_developer_access() or _user_owns_cbo(current_user, cbo))
+    )
+
+
+def _program_overview_redirect(cbo: CBO, program_key_value: str = ''):
+    kwargs = {'_anchor': 'program-overview'}
+    if program_key_value:
+        kwargs['program'] = program_key_value
+    if _user_owns_cbo(current_user, cbo) and request.form.get('from_dashboard') == '1':
+        return redirect(url_for('main.cbo_dashboard', **kwargs))
+    return redirect(url_for('main.cbo_profile', slug=cbo.slug, **kwargs))
+
+
+def _narrative_profile_blob(profile: dict) -> dict:
+    narrative = profile.get('narrative_profile')
+    if not isinstance(narrative, dict):
+        narrative = {}
+        profile['narrative_profile'] = narrative
+    return narrative
+
+
+def _persist_cbo_profile(cbo: CBO, profile: dict) -> None:
+    cbo.ai_profile_json = json.dumps(profile, default=str)
+    db.session.add(cbo)
+    db.session.commit()
+
+
 def _can_manage_bookkeeping(cbo: CBO) -> bool:
     return bool(
         current_user.is_authenticated
@@ -3954,20 +4243,20 @@ def _default_developer_sms_activity_cbo() -> CBO | None:
             preferred_cbo_id = None
         if preferred_cbo_id is not None:
             preferred_cbo = db.session.get(CBO, preferred_cbo_id)
-            if preferred_cbo is not None:
+            if preferred_cbo is not None and not _is_internal_onboarding_source_cbo(preferred_cbo):
                 return preferred_cbo
         session.pop('developer_sms_cbo_id', None)
 
     configured_cbo_id = current_app.config.get('DEVELOPER_SMS_ACTIVITY_CBO_ID')
     if configured_cbo_id is not None:
         configured_cbo = db.session.get(CBO, configured_cbo_id)
-        if configured_cbo is not None:
+        if configured_cbo is not None and not _is_internal_onboarding_source_cbo(configured_cbo):
             return configured_cbo
 
     configured_slug = str(current_app.config.get('DEVELOPER_SMS_ACTIVITY_CBO_SLUG') or '').strip().lower()
     if configured_slug:
         configured_cbo = CBO.query.filter_by(slug=configured_slug).first()
-        if configured_cbo is not None:
+        if configured_cbo is not None and not _is_internal_onboarding_source_cbo(configured_cbo):
             return configured_cbo
 
     cbo_user_counts: dict[int, int] = {}
@@ -3979,7 +4268,7 @@ def _default_developer_sms_activity_cbo() -> CBO | None:
     if cbo_user_counts:
         candidate_cbos = {
             cbo.id: cbo
-            for cbo in CBO.query.filter(CBO.id.in_(tuple(cbo_user_counts.keys()))).all()
+            for cbo in _visible_cbo_query().filter(CBO.id.in_(tuple(cbo_user_counts.keys()))).all()
         }
         ranked_cbo_ids = sorted(
             candidate_cbos,
@@ -3990,7 +4279,7 @@ def _default_developer_sms_activity_cbo() -> CBO | None:
             if candidate is not None:
                 return candidate
 
-    return CBO.query.order_by(CBO.name.asc()).first()
+    return _visible_cbo_query().order_by(CBO.name.asc()).first()
 
 
 def _bookkeeping_mobile_scan_serializer() -> URLSafeTimedSerializer:
@@ -4600,6 +4889,7 @@ def _process_bookkeeping_uploads(
                     include_in_workspace=include_in_workspace,
                     document_date_override=document_date_override,
                     workspace_period_key=workspace_period_key,
+                    text_pages=prepared.get('text_pages'),
                 )
                 successes += 1
             except BookkeepingExtractionError as exc:
@@ -4642,6 +4932,7 @@ def _process_bookkeeping_uploads(
                 include_in_workspace=include_in_workspace,
                 document_date_override=document_date_override,
                 workspace_period_key=workspace_period_key,
+                text_pages=prepared.get('text_pages'),
             )
             successes += 1
         except BookkeepingExtractionError as exc:
@@ -5495,6 +5786,7 @@ def _ingest_intake_response_payload(cbo: CBO, response_payload: dict, inline_upl
                     uploaded_by_user_id=None,
                     upload_batch_id=response_record.response_id,
                     related_page_upload=False,
+                    text_pages=prepared.get('text_pages'),
                 )
                 upload.bookkeeping_document_id = document.id
                 upload.sync_status = 'processed'
@@ -5787,14 +6079,16 @@ def _developer_sms_activity_context() -> dict:
     featured_cbo_in_cards = False
     add_cbo_source = featured_cbo
     if add_cbo_source is None:
-        add_cbo_source = CBO.query.filter(
+        add_cbo_source = _visible_cbo_query().filter(
             db.or_(
                 CBO.intake_form_responder_url != '',
                 CBO.intake_form_id != '',
             )
         ).order_by(CBO.name.asc()).first()
     if add_cbo_source is None:
-        add_cbo_source = CBO.query.order_by(CBO.name.asc()).first()
+        add_cbo_source = _visible_cbo_query().order_by(CBO.name.asc()).first()
+    if add_cbo_source is None:
+        add_cbo_source = _ensure_internal_onboarding_source_cbo()
 
     add_cbo_intake = None
     if add_cbo_source is not None:
@@ -5815,7 +6109,7 @@ def _developer_sms_activity_context() -> dict:
         'recent_intake_cbos': 0,
     }
 
-    for cbo in CBO.query.order_by(CBO.name.asc()).all():
+    for cbo in _visible_cbo_query().order_by(CBO.name.asc()).all():
         feedback = _community_feedback_summary(cbo)
         intake = _google_form_activity_summary(cbo, recent_cutoff=recent_cutoff)
         active_user_count = User.query.filter(
@@ -5962,6 +6256,8 @@ def _bookkeeping_summary(cbo: CBO) -> dict:
             'document_title': extracted.get('document_title', ''),
             'raw_text': extracted.get('raw_text', ''),
             'extraction_notes': extracted.get('extraction_notes', ''),
+            'is_narrative': (document.document_type or '') == NARRATIVE_DOCUMENT_TYPE,
+            'narrative_section_count': len((extracted.get('narrative_profile') or {}).get('sections') or []),
             'detected_columns': detected_columns,
             'transcribed_rows': annotated_rows,
             'normalized_entries': entries,
@@ -6321,6 +6617,8 @@ def _serialize_bookkeeping_document_card_for_ai(card: dict) -> dict:
         'document_title': card.get('document_title', ''),
         'raw_text': card.get('raw_text', ''),
         'extraction_notes': card.get('extraction_notes', ''),
+        'is_narrative': bool(card.get('is_narrative')),
+        'narrative_section_count': card.get('narrative_section_count', 0),
         'detected_columns': _json_safe_copy(card.get('detected_columns') or []),
         'transcribed_rows': _json_safe_copy(card.get('transcribed_rows') or []),
         'normalized_entries': _json_safe_copy(card.get('normalized_entries') or []),
@@ -6545,13 +6843,17 @@ def _build_cbo_ai_followup_context(cbo: CBO) -> dict:
     })
 
 
-def _process_bookkeeping_document(cbo: CBO, filename: str, mime_type: str, source_bytes: bytes, page_images: list[dict], source_channel: str, uploaded_by_user_id: int | None, existing_document: BookkeepingDocument | None = None, upload_batch_id: str | None = None, client_submission_id: str | None = None, related_page_upload: bool = False, include_in_workspace: bool | None = None, document_date_override: str | None = None, workspace_period_key: str | None = None) -> BookkeepingDocument:
+def _process_bookkeeping_document(cbo: CBO, filename: str, mime_type: str, source_bytes: bytes, page_images: list[dict], source_channel: str, uploaded_by_user_id: int | None, existing_document: BookkeepingDocument | None = None, upload_batch_id: str | None = None, client_submission_id: str | None = None, related_page_upload: bool = False, include_in_workspace: bool | None = None, document_date_override: str | None = None, workspace_period_key: str | None = None, text_pages: list[str] | None = None) -> BookkeepingDocument:
     if not _allowed_bookkeeping_upload(filename, mime_type):
         raise BookkeepingExtractionError('unsupported file type.')
 
-    extracted = extract_bookkeeping_document(page_images, filename, cbo, related_page_upload=related_page_upload)
-    extracted['related_page_upload'] = bool(related_page_upload)
-    extracted['audit'] = audit_bookkeeping_document(extracted, cbo)
+    narrative_payload = _extract_narrative_profile_payload(cbo, filename, text_pages)
+    if narrative_payload:
+        extracted = _build_narrative_extraction_payload(narrative_payload, text_pages)
+    else:
+        extracted = extract_bookkeeping_document(page_images, filename, cbo, related_page_upload=related_page_upload)
+        extracted['related_page_upload'] = bool(related_page_upload)
+        extracted['audit'] = audit_bookkeeping_document(extracted, cbo)
     processed_at = datetime.utcnow()
     normalized_document_date = _resolve_bookkeeping_document_date(document_date_override, extracted.get('document_date'))
     resolved_workspace_period_key = (
@@ -6602,8 +6904,228 @@ def _process_bookkeeping_document(cbo: CBO, filename: str, mime_type: str, sourc
 
     db.session.add(document)
     db.session.commit()
+
+    if narrative_payload:
+        _merge_narrative_profile_facts(cbo, narrative_payload, document)
+        db.session.commit()
+
     sync_bookkeeping_document_to_firestore(document)
     return document
+
+
+def _extract_narrative_profile_payload(cbo: CBO, filename: str, text_pages: list[str] | None) -> dict | None:
+    """Parse prose documents into profile facts, or return None to use the ledger pipeline."""
+    if not current_app.config.get('NARRATIVE_PROFILE_PARSING_ENABLED', True):
+        return None
+    if not narrative_parsing_configured():
+        return None
+
+    document_text = document_text_from_pages(text_pages or [])
+    if not looks_like_narrative_document(document_text):
+        return None
+
+    try:
+        payload = extract_narrative_profile(document_text, filename, cbo)
+    except NarrativeProfileError as exc:
+        current_app.logger.warning(
+            'Narrative profile parsing failed for %s (CBO %s); using ledger extraction instead: %s',
+            filename,
+            cbo.id,
+            exc,
+        )
+        return None
+
+    if payload.get('document_kind') == 'financial_ledger':
+        current_app.logger.info(
+            'Narrative parser classified %s as a financial ledger; using ledger extraction.', filename
+        )
+        return None
+
+    if not narrative_payload_has_content(payload):
+        return None
+
+    current_app.logger.info(
+        'Parsed %s as a narrative report for CBO %s: %d section(s), %d metric(s)',
+        filename,
+        cbo.id,
+        len(payload.get('sections') or []),
+        len(payload.get('quantified_metrics') or []),
+    )
+    return payload
+
+
+def _build_narrative_extraction_payload(narrative_payload: dict, text_pages: list[str] | None) -> dict:
+    """Shape narrative results like a bookkeeping extraction so storage stays uniform.
+
+    Rows, entries, and totals stay empty on purpose: a report has no ledger data,
+    and empty collections keep it out of the financial aggregates.
+    """
+    document_text = document_text_from_pages(text_pages or [])
+    field_confidences = [
+        float(field.get('confidence') or 0.0)
+        for section in narrative_payload.get('sections') or []
+        for field in section.get('fields') or []
+    ]
+    return {
+        'document_type': NARRATIVE_DOCUMENT_TYPE,
+        'document_date': '',
+        'period_start': '',
+        'period_end': '',
+        'currency': 'KES',
+        'organization_name': narrative_payload.get('organization_name', ''),
+        'document_title': narrative_payload.get('document_title', ''),
+        'vendor_or_counterparty': '',
+        'summary': narrative_payload.get('summary', ''),
+        'raw_text': document_text[:20000],
+        'detected_columns': [],
+        'transcribed_rows': [],
+        'document_confidence': round(sum(field_confidences) / len(field_confidences), 4) if field_confidences else 0.0,
+        'quality_flags': [],
+        'extraction_notes': 'Parsed as a narrative report and mapped into profile fields instead of ledger rows.',
+        'totals': {'income': 0.0, 'expenses': 0.0, 'net': 0.0},
+        'bookkeeping_entries': [],
+        'related_page_upload': False,
+        'audit': {},
+        'narrative_profile': narrative_payload,
+        'transcription_provider': 'pdf_text_layer',
+        'extraction_pipeline': 'gemini_narrative_profile',
+        'model_used': current_app.config.get('NARRATIVE_DOCUMENT_MODEL', 'gemini-3.5-flash'),
+    }
+
+
+def _merge_narrative_profile_facts(cbo: CBO, narrative_payload: dict, document: BookkeepingDocument) -> None:
+    """Fold parsed report facts into the CBO profile and its relational columns."""
+    profile = _safe_json(cbo.ai_profile_json) or {}
+    updates = narrative_payload.get('profile_updates') or {}
+
+    narrative_profile = profile.get('narrative_profile')
+    if not isinstance(narrative_profile, dict):
+        narrative_profile = {}
+
+    narrative_profile.update({
+        'summary': narrative_payload.get('summary', '') or narrative_profile.get('summary', ''),
+        'headline': narrative_payload.get('headline', '') or narrative_profile.get('headline', ''),
+        'assessment': narrative_payload.get('funder_assessment') or narrative_profile.get('assessment') or {},
+        'mission': updates.get('mission', '') or narrative_profile.get('mission', ''),
+        'vision': updates.get('vision', '') or narrative_profile.get('vision', ''),
+        'sections': _merge_narrative_sections(
+            narrative_profile.get('sections') or [],
+            narrative_payload.get('sections') or [],
+            # Re-reading the same document supersedes its previous sections rather
+            # than stacking a second copy under slightly reworded headings.
+            replace_all=(
+                str(narrative_profile.get('source_filename') or '').strip().lower()
+                == str(document.original_filename or '').strip().lower()
+            ),
+        ),
+        'metrics': narrative_payload.get('quantified_metrics') or narrative_profile.get('metrics') or [],
+        'journey': narrative_payload.get('journey') or narrative_profile.get('journey') or {},
+        'leadership': updates.get('leadership') or narrative_profile.get('leadership') or [],
+        'programs': merge_program_lists(
+            narrative_profile.get('programs') or [],
+            updates.get('programs') or [],
+        ),
+        'partners': updates.get('partners') or narrative_profile.get('partners') or [],
+        'milestones': updates.get('milestones') or narrative_profile.get('milestones') or [],
+        'needs': updates.get('needs') or narrative_profile.get('needs') or [],
+        'source_document_id': document.id,
+        'source_filename': document.original_filename,
+        'updated_at': datetime.utcnow().isoformat(),
+    })
+    profile['narrative_profile'] = narrative_profile
+
+    for profile_key in ('location', 'org_type', 'focus_areas', 'founded_year'):
+        value = str(updates.get(profile_key) or '').strip()
+        if value and _profile_value_is_placeholder(profile.get(profile_key), getattr(cbo, profile_key, '')):
+            profile[profile_key] = value
+
+    leadership_roles = _map_narrative_leadership(updates.get('leadership') or [])
+    if leadership_roles:
+        existing_leadership = profile.get('leadership')
+        merged_leadership = dict(existing_leadership) if isinstance(existing_leadership, dict) else {}
+        for role_key, person in leadership_roles.items():
+            if person and _leadership_slot_is_weak(merged_leadership.get(role_key), cbo):
+                merged_leadership[role_key] = person
+        profile['leadership'] = merged_leadership
+
+    cbo.ai_profile_json = json.dumps(profile, default=str)
+    _apply_profile_fields(cbo, profile)
+    db.session.add(cbo)
+
+
+def _merge_narrative_sections(existing_sections: list, new_sections: list, replace_all: bool = False) -> list:
+    """Newer uploads replace same-titled sections and append the rest, keeping document order."""
+    if replace_all:
+        return [section for section in new_sections if isinstance(section, dict)]
+
+    merged = [section for section in existing_sections if isinstance(section, dict)]
+    index_by_title = {
+        str(section.get('title') or '').strip().lower(): position
+        for position, section in enumerate(merged)
+    }
+
+    for section in new_sections:
+        if not isinstance(section, dict):
+            continue
+        title_key = str(section.get('title') or '').strip().lower()
+        if not title_key:
+            continue
+        if title_key in index_by_title:
+            merged[index_by_title[title_key]] = section
+        else:
+            index_by_title[title_key] = len(merged)
+            merged.append(section)
+
+    return merged
+
+
+def _profile_value_is_placeholder(profile_value, column_value) -> bool:
+    """Only auto-fill fields the CBO has not meaningfully set yet."""
+    current = str(profile_value or '').strip() or str(column_value or '').strip()
+    if not current:
+        return True
+    return current.lower() in _PLACEHOLDER_PROFILE_VALUES
+
+
+def _leadership_slot_is_weak(current_value, cbo: CBO) -> bool:
+    """A named person from a report should replace an intake stand-in.
+
+    Intake seeds these slots with things like the platform name or the CBO's own
+    name, which are not people and should not outrank a leader the report names.
+    """
+    current = str(current_value or '').strip()
+    if not current:
+        return True
+
+    normalized = current.lower()
+    if normalized in _LEADERSHIP_PLACEHOLDER_VALUES:
+        return True
+    return normalized == str(cbo.name or '').strip().lower()
+
+
+def _map_narrative_leadership(leaders: list) -> dict:
+    """Match free-form report roles onto the three leadership slots the profile renders."""
+    role_keywords = {
+        'chairperson': ('chair', 'chairman', 'chairwoman', 'chairperson'),
+        'program_director': ('founder', 'director', 'program', 'programme', 'executive', 'clinical officer'),
+        'finance_lead': ('finance', 'treasurer', 'accountant', 'bookkeep'),
+    }
+
+    mapped = {}
+    for leader in leaders:
+        if not isinstance(leader, dict):
+            continue
+        name = str(leader.get('name') or '').strip()
+        role = str(leader.get('role') or '').strip().lower()
+        if not name or not role:
+            continue
+        for role_key, keywords in role_keywords.items():
+            if role_key in mapped:
+                continue
+            if any(keyword in role for keyword in keywords):
+                mapped[role_key] = name
+                break
+    return mapped
 
 
 def _normalize_bookkeeping_document_date(raw_value) -> str:
@@ -7403,7 +7925,13 @@ def _bookkeeping_offline_payload(cbo: CBO, token: str, summary: dict | None = No
 
 
 def _refresh_bookkeeping_audits(cbo: CBO) -> None:
-    documents = BookkeepingDocument.query.filter_by(cbo_id=cbo.id).all()
+    # Narrative reports hold profile facts rather than ledger rows, so ledger
+    # refinement and auditing have nothing to check and would strip their payload.
+    documents = [
+        document
+        for document in BookkeepingDocument.query.filter_by(cbo_id=cbo.id).all()
+        if (document.document_type or '') != NARRATIVE_DOCUMENT_TYPE
+    ]
     extracted_by_id = {}
     for document in documents:
         extracted = _safe_json(document.extracted_data_json)

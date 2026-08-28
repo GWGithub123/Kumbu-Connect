@@ -33,9 +33,6 @@
     <a href="{{ url_for('auth.developer_google_start', next=request.args.get('next', '')) }}" class="btn btn-primary btn-block btn-google-login">
       <i class="fab fa-google"></i> Continue With Google
     </a>
-    {% if developer_google.allowed_emails %}
-    <p class="auth-footer-text">Allowed Google accounts: {{ developer_google.allowed_emails | join(', ') }}</p>
-    {% endif %}
     {% else %}
     <div class="auth-callout auth-callout--error">
       {{ developer_google.error }}

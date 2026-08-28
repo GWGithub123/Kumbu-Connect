@@ -7,8 +7,8 @@ if [[ -z "${CLOUDSDK_CONFIG:-}" && -d "$KUMBU_CLOUDSDK_CONFIG" ]]; then
   export CLOUDSDK_CONFIG="$KUMBU_CLOUDSDK_CONFIG"
 fi
 
-CONFIG_NAME="${CLOUDSDK_ACTIVE_CONFIG_NAME:-kumbu-connect}"
-PROJECT_ID="${PROJECT_ID:-kumbu-connect}"
+CONFIG_NAME="${CLOUDSDK_ACTIVE_CONFIG_NAME:-kumbuconnect1}"
+PROJECT_ID="${PROJECT_ID:-kumbuconnect1}"
 REGION="${REGION:-us-east1}"
 SERVICE_NAME="${SERVICE_NAME:-kumbu-connect-web}"
 FIREBASE_SECRET_MOUNT="${FIREBASE_SECRET_MOUNT:-/secrets/firebase/firebase-service-account.json}"
@@ -16,7 +16,7 @@ GOOGLE_CLIENT_SECRET_MOUNT="${GOOGLE_CLIENT_SECRET_MOUNT:-/secrets/google/client
 GOOGLE_TOKEN_SECRET_MOUNT="${GOOGLE_TOKEN_SECRET_MOUNT:-/secrets/google-token/token.json}"
 RUNTIME_SERVICE_ACCOUNT="${RUNTIME_SERVICE_ACCOUNT:-kumbu-cloud-run@${PROJECT_ID}.iam.gserviceaccount.com}"
 CLOUDSQL_INSTANCE="${CLOUDSQL_INSTANCE:-${PROJECT_ID}:us-east1:kumbu-postgres}"
-FIREBASE_STORAGE_BUCKET="${FIREBASE_STORAGE_BUCKET:-${PROJECT_ID}.firebasestorage.app}"
+FIREBASE_STORAGE_BUCKET="${FIREBASE_STORAGE_BUCKET:-}"
 PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-}"
 TWILIO_VALIDATE_SIGNATURE="${TWILIO_VALIDATE_SIGNATURE:-true}"
 MEMORY="${MEMORY:-2Gi}"
@@ -112,6 +112,13 @@ resolve_env_value() {
   printf '%s' "$value"
 }
 
+secret_exists() {
+  local secret_name="$1"
+  gcloud secrets describe "$secret_name" \
+    --project="$PROJECT_ID" \
+    >/dev/null 2>&1
+}
+
 append_env_var() {
   local key="$1"
   local value="$2"
@@ -162,8 +169,14 @@ GOOGLE_SEARCH_ENGINE_ID="$(resolve_env_value GOOGLE_SEARCH_ENGINE_ID GOOGLE_SEAR
 AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="$(resolve_env_value AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT Azure_Document_Intelligence_Endpoint)"
 GOOGLE_DEVELOPER_ALLOWED_EMAILS="$(resolve_env_value GOOGLE_DEVELOPER_ALLOWED_EMAILS GOOGLE_DEVELOPER_ALLOWED_EMAILS)"
 GOOGLE_DEVELOPER_EXISTING_USER_BYPASS_EMAILS="$(resolve_env_value GOOGLE_DEVELOPER_EXISTING_USER_BYPASS_EMAILS GOOGLE_DEVELOPER_EXISTING_USER_BYPASS_EMAILS)"
+FIREBASE_STORAGE_BUCKET="${FIREBASE_STORAGE_BUCKET:-$(resolve_env_value FIREBASE_STORAGE_BUCKET FIREBASE_STORAGE_BUCKET)}"
 DEPLOY_TEMP_LOGIN_BYPASS_ENABLED="${DEPLOY_TEMP_LOGIN_BYPASS_ENABLED:-false}"
 DEPLOY_TEMP_LOGIN_BYPASS_CBO_SLUG="${DEPLOY_TEMP_LOGIN_BYPASS_CBO_SLUG:-}"
+
+if [[ -z "$FIREBASE_STORAGE_BUCKET" ]]; then
+  echo "FIREBASE_STORAGE_BUCKET is required. Use the exact bucket name shown in Firebase Storage, for example kumbuconnect1-318a0.firebasestorage.app." >&2
+  exit 1
+fi
 
 ENV_VARS=()
 append_env_var FIREBASE_PROJECT_ID "$PROJECT_ID"
@@ -177,12 +190,18 @@ append_env_var REMEMBER_COOKIE_SAMESITE Lax
 append_env_var ALLOW_LOCAL_FILE_STORAGE_FALLBACK false
 append_env_var ALLOW_GOOGLE_ADC_FALLBACK false
 append_env_var TWILIO_VALIDATE_SIGNATURE "$TWILIO_VALIDATE_SIGNATURE"
-append_env_var GOOGLE_OAUTH_CLIENT_SECRET_JSON "$GOOGLE_CLIENT_SECRET_MOUNT"
-append_env_var GOOGLE_DEVELOPER_CLIENT_SECRET_JSON "$GOOGLE_CLIENT_SECRET_MOUNT"
-append_env_var GOOGLE_USER_CLIENT_SECRET_JSON "$GOOGLE_CLIENT_SECRET_MOUNT"
-append_env_var GOOGLE_OAUTH_TOKEN_JSON "$GOOGLE_TOKEN_SECRET_MOUNT"
-append_env_var GOOGLE_AUTHORIZED_USER_JSON "$GOOGLE_TOKEN_SECRET_MOUNT"
 append_env_var FIREBASE_SERVICE_ACCOUNT_JSON "$FIREBASE_SECRET_MOUNT"
+
+if secret_exists kumbu-google-oauth-client-secret-json; then
+  append_env_var GOOGLE_OAUTH_CLIENT_SECRET_JSON "$GOOGLE_CLIENT_SECRET_MOUNT"
+  append_env_var GOOGLE_DEVELOPER_CLIENT_SECRET_JSON "$GOOGLE_CLIENT_SECRET_MOUNT"
+  append_env_var GOOGLE_USER_CLIENT_SECRET_JSON "$GOOGLE_CLIENT_SECRET_MOUNT"
+fi
+
+if secret_exists kumbu-google-oauth-token-json; then
+  append_env_var GOOGLE_OAUTH_TOKEN_JSON "$GOOGLE_TOKEN_SECRET_MOUNT"
+  append_env_var GOOGLE_AUTHORIZED_USER_JSON "$GOOGLE_TOKEN_SECRET_MOUNT"
+fi
 
 if [[ -n "$GOOGLE_SEARCH_ENGINE_ID" ]]; then
   append_env_var GOOGLE_SEARCH_ENGINE_ID "$GOOGLE_SEARCH_ENGINE_ID"
@@ -207,8 +226,6 @@ write_env_vars_file "$ENV_VARS_FILE"
 
 SECRET_MAPPINGS=(
   "${FIREBASE_SECRET_MOUNT}=kumbu-firebase-service-account-json:latest"
-  "${GOOGLE_CLIENT_SECRET_MOUNT}=kumbu-google-oauth-client-secret-json:latest"
-  "${GOOGLE_TOKEN_SECRET_MOUNT}=kumbu-google-oauth-token-json:latest"
   "SECRET_KEY=kumbu-secret-key:latest"
   "DATABASE_URL=kumbu-database-url:latest"
   "Kobo_Toobox_API_Key=kumbu-kobo-api-key:latest"
@@ -222,6 +239,15 @@ SECRET_MAPPINGS=(
   "TWILIO_AUTH_TOKEN=kumbu-twilio-auth-token:latest"
   "TWILIO_PHONE_NUMBER=kumbu-twilio-phone-number:latest"
 )
+
+if secret_exists kumbu-google-oauth-client-secret-json; then
+  SECRET_MAPPINGS+=("${GOOGLE_CLIENT_SECRET_MOUNT}=kumbu-google-oauth-client-secret-json:latest")
+fi
+
+if secret_exists kumbu-google-oauth-token-json; then
+  SECRET_MAPPINGS+=("${GOOGLE_TOKEN_SECRET_MOUNT}=kumbu-google-oauth-token-json:latest")
+fi
+
 SECRET_MAPPINGS_ARG="$(printf '%s,' "${SECRET_MAPPINGS[@]}")"
 SECRET_MAPPINGS_ARG="${SECRET_MAPPINGS_ARG%,}"
 
