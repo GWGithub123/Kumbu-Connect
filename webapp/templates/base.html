@@ -40,11 +40,11 @@
           {% endif %}
           <span class="nav-user">
             {% if google_profile_picture_url %}
-              <img src="{{ google_profile_picture_url }}" alt="{{ current_user.display_name }} Google profile photo" class="nav-avatar" referrerpolicy="no-referrer">
+              <img src="{{ google_profile_picture_url }}" alt="{{ current_user.nav_display_name }} Google profile photo" class="nav-avatar" referrerpolicy="no-referrer">
             {% else %}
               <span class="nav-avatar nav-avatar--fallback" aria-hidden="true"><i class="fas fa-user-circle"></i></span>
             {% endif %}
-            <span class="nav-user__name">{{ current_user.display_name }}</span>
+            <span class="nav-user__name">{{ current_user.nav_display_name }}</span>
             <span class="badge {{ 'badge-developer' if has_developer_access else 'badge-' ~ current_user.role_badge_class }}">{{ 'DEVELOPER' if has_developer_access else current_user.role_badge_label }}</span>
           </span>
           <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline">Logout</a>

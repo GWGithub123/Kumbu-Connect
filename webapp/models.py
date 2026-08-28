@@ -67,6 +67,17 @@ class User(UserMixin, db.Model):
             return 'FUNDER + CBO'
         return str(self.role or '').upper()
 
+    @property
+    def nav_display_name(self) -> str:
+        """Navbar label. Operator accounts follow the linked CBO so a rename cannot leave a stale org name in the header."""
+        current = str(self.display_name or '').strip()
+        cbo = self.cbo
+        if cbo and current.lower().endswith(' operator'):
+            org = str(cbo.name or '').strip()
+            if org:
+                return f'{org} operator'
+        return current
+
 
 class CBO(db.Model):
     """A Community-Based Organisation profile."""
