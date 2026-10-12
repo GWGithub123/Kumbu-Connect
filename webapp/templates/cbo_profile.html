@@ -2,6 +2,7 @@
 {% from "_contact_macros.html" import render_cbo_contact_inbox, render_funder_contact_modal, render_funder_contact_panel %}
 {% from "_narrative_profile.html" import render_narrative_profile %}
 {% from "_program_overview.html" import render_program_overview %}
+{% from "_web_research_panel.html" import render_web_research_panel %}
 {% block title %}{{ profile.get('name', cbo.name) }} — Kumbu Connect{% endblock %}
 
 {% block head %}
@@ -19,7 +20,41 @@
 {% set embedded_layout = embedded_layout|default(false) %}
 {% set isolated_view = isolated_view or '' %}
 {% set viewer_is_funder = viewer_is_funder|default(false) %}
-{% set bookkeeping_visible = not viewer_is_funder %}
+{% set funder_layout = funder_layout|default(none) %}
+{% set search_match = search_match|default(none) %}
+{% set web_research = web_research|default(none) %}
+{% set can_review_public_sources = can_review_public_sources|default(own) %}
+{# The composition decides which blocks have enough substance to stand alone,
+   so a thin record reflows instead of rendering empty frames. #}
+{% set composition = composition|default({}) %}
+{% set has_leadership = (composition.get('leadership') or {}).get('present') %}
+{% set has_financials = (composition.get('financials') or {}).get('present') %}
+{% set has_impact = (composition.get('impact') or {}).get('present') %}
+{% set overview_columns = composition.get('overview_columns') or 1 %}
+{# Jump targets are worked out up front so the rail can sit above the sections
+   it links to, and so it only ever lists a section this CBO actually has. #}
+{% set nav_narrative = composition.get('narrative') or profile.get('narrative_profile') or {} %}
+{% set nav_growth = _safe_json_inline(cbo.growth_metrics_json) %}
+{% set jump = namespace(items=[]) %}
+{% if has_leadership or has_financials or has_impact %}
+  {% set jump.items = jump.items + [('section-overview', 'Overview')] %}
+{% endif %}
+{% if nav_narrative.get('program_overview') %}
+  {% set jump.items = jump.items + [('program-overview', 'Programs')] %}
+{% endif %}
+{% if nav_narrative.get('sections') or nav_narrative.get('metrics') or nav_narrative.get('assessment') %}
+  {% set jump.items = jump.items + [('section-detail', 'Organisation Detail')] %}
+{% endif %}
+{% if nav_growth %}
+  {% set jump.items = jump.items + [('section-growth', 'Growth')] %}
+{% endif %}
+{% if cbo.social_impact_score %}
+  {% set jump.items = jump.items + [('section-score', 'Impact Score')] %}
+{% endif %}
+{% if can_review_public_sources and web_research %}
+  {% set jump.items = jump.items + [('public-sources', 'Public Sources')] %}
+{% endif %}
+{% set bookkeeping_visible = own or bookkeeping_visible|default(false) %}
 {% if not bookkeeping_visible and isolated_view in ['bookkeeping-live', 'bookkeeping-digitized'] %}
 {% set isolated_view = '' %}
 {% endif %}
@@ -118,18 +153,43 @@
         {% endif %}
         {% if viewer_is_funder and contact_post_url %}
           {{ render_funder_contact_modal(cbo, contact_post_url, viewer_contact_thread, return_to='profile', trigger_id='contact-funder', modal_id='contact-funder-modal') }}
+        {% elif not own %}
+          <div class="profile-reachout-note" id="contact-funder">
+            <p>Sign in with your funder account to reach out to {{ profile.get('name', cbo.name) }}.</p>
+            <a class="btn btn-primary btn-sm" href="{{ url_for('auth.logout', next=url_for('main.cbo_profile', slug=cbo.slug, contact=1)) }}">Sign in as a funder</a>
+          </div>
         {% endif %}
       </div>
-      <h1>{{ profile.get('name', cbo.name) }}</h1>
-      {% if profile.get('tagline') %}
-        <p class="tagline">{{ profile.tagline }}</p>
-      {% endif %}
+      <div class="profile-header__identity">
+        {% if profile.get('profile_image') %}
+          <img class="profile-header__logo" src="{{ url_for('main.cbo_profile_image', slug=cbo.slug) }}" alt="">
+        {% endif %}
+        <div>
+          <h1>{{ profile.get('name', cbo.name) }}</h1>
+          {% if profile.get('tagline') %}
+            <p class="tagline">{{ profile.tagline }}</p>
+          {% endif %}
+        </div>
+      </div>
       <div class="header-meta">
         <span><i class="fas fa-map-marker-alt"></i> <strong>Location:</strong> {{ profile.get('location', cbo.location) or '—' }}</span>
         <span><i class="fas fa-building"></i> <strong>Type:</strong> {{ profile.get('org_type', cbo.org_type) }}</span>
         <span class="founded-badge"><span class="label">Founded</span> <span class="year">{{ profile.get('founded_year', cbo.founded_year) or '—' }}</span></span>
       </div>
       <p class="focus-inline"><strong>Focus:</strong> {{ profile.get('focus_areas', cbo.focus_areas) or '—' }}</p>
+      {% if profile.get('website') %}
+        <p class="focus-inline"><i class="fas fa-link"></i> <a href="{{ profile.website }}" target="_blank" rel="noopener">{{ profile.website }}</a></p>
+      {% endif %}
+      {% if profile.get('origin_story') %}
+        <p class="origin-story">{{ profile.origin_story }}</p>
+      {% endif %}
+      {% if own %}
+        <form method="POST" action="{{ url_for('main.refresh_cbo_public_research', cbo_id=cbo.id) }}" class="profile-web-enrich-cta">
+          <p>Have a base profile already? Search public articles and sites, then confirm extra facts to flesh this page out.</p>
+          <button type="submit" class="btn btn-outline btn-sm"><i class="fas fa-magnifying-glass"></i> Gather information from the web</button>
+          <a href="#public-sources" class="btn btn-outline btn-sm">Review public sources</a>
+        </form>
+      {% endif %}
     </section>
     {% endif %}
 
@@ -161,11 +221,82 @@
 
     <!-- ── TAB: PROFILE ────────────────────────────────────────── -->
     {% if not isolated_bookkeeping %}
-    <div class="profile-tab-panel{% if not isolated_view or isolated_profile %} active{% endif %}" id="tab-profile">
+    <div class="profile-tab-panel{% if not isolated_view or isolated_profile %} active{% endif %}" id="tab-profile"{% if funder_layout %} style="{% for key, order in funder_layout.section_order.items() %}--section-order-{{ key }}: {{ order }};{% endfor %}"{% endif %}>
+
+    <div class="profile-stage{% if jump.items|length > 2 and not isolated_view %} profile-stage--railed{% endif %}">
+    {% if jump.items|length > 2 and not isolated_view %}
+    <nav class="profile-rail" aria-label="Profile sections">
+      <ol class="profile-rail__list">
+        {% for anchor, label in jump.items %}
+        <li class="profile-rail__item">
+          <a href="#{{ anchor }}" class="profile-rail__link" data-profile-jump="{{ anchor }}">
+            <span class="profile-rail__mark" aria-hidden="true"></span>
+            <span class="profile-rail__label">{{ label }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ol>
+    </nav>
+    {% endif %}
+    <div class="profile-stage__main{% if funder_layout %} funder-tailored funder-tailored--active{% endif %}">
+
+    {% if viewer_is_funder and search_match %}
+    <aside class="funder-profile-banner funder-profile-banner--search">
+      <div>
+        <p class="funder-profile-banner__eyebrow">Search match</p>
+        <h2>{{ search_match.score }}/100 for “{{ search_match.query }}”</h2>
+        <p class="funder-profile-banner__lede">This score follows the search that brought you here. It is separate from your saved funding interests.</p>
+        {% if search_match.reasons %}
+        <ul>
+          {% for reason in search_match.reasons %}
+            <li>{{ reason }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+    </aside>
+    {% endif %}
+
+    {% if viewer_is_funder and funder_layout %}
+    <aside class="funder-profile-banner{% if funder_layout.is_match %} funder-profile-banner--match{% else %} funder-profile-banner--mismatch{% endif %}">
+      <div>
+        <div class="funder-profile-banner__match">
+          <p class="funder-profile-banner__eyebrow">{% if funder_layout.is_match %}Saved interest match{% else %}Saved interest overlap{% endif %}</p>
+          <h2>{{ funder_layout.headline }}</h2>
+          {% if search_match %}
+            <p class="funder-profile-banner__lede">Shown separately from your search for “{{ search_match.query }}”.</p>
+          {% endif %}
+          {% if funder_layout.summary and funder_layout.is_match %}
+            <p class="funder-profile-banner__lede">{{ funder_layout.summary }}</p>
+          {% endif %}
+          {% if funder_layout.reasons %}
+            <ul>
+              {% for reason in funder_layout.reasons %}
+                <li>{{ reason }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        {% if funder_layout.gap_reasons %}
+        <div class="funder-profile-banner__gaps">
+          <p class="funder-profile-banner__gaps-title">Saved-interest gaps</p>
+          <h3>Where {{ funder_layout.cbo_name or cbo.name }} differs from your saved funding interests</h3>
+          <ul>
+            {% for reason in funder_layout.gap_reasons %}
+              <li>{{ reason }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+      </div>
+      <a href="{{ url_for('main.funder_profile') }}" class="btn btn-outline btn-sm">Edit interests</a>
+    </aside>
+    {% endif %}
 
     <!-- ── ROW 1: KPI RIBBON (Operational Metrics) ──────────────── -->
     {% set operational_cards = profile.get('operational_metric_cards', []) %}
     {% set ops = profile.get('operational_metrics', {}) %}
+    <div data-profile-section="kpis" class="{% if funder_layout and 'kpis' in funder_layout.emphasized %}is-emphasized{% endif %}{% if funder_layout and 'kpis' in funder_layout.collapsed %} is-collapsed{% endif %}">
     {% if operational_cards %}
     <section class="profile-section kpi-ribbon">
       <div class="kpi-grid">
@@ -207,23 +338,27 @@
       </div>
     </section>
     {% endif %}
+    </div>
 
+    <div id="section-overview" data-profile-section="overview" class="{% if funder_layout and 'overview' in funder_layout.emphasized %}is-emphasized{% endif %}{% if funder_layout and 'overview' in funder_layout.collapsed %} is-collapsed{% endif %}">
     <div class="profile-section-divider" aria-hidden="true">
       <span>Data Overview</span>
     </div>
 
-    <div class="profile-overview-layout">
+    <div class="profile-overview-layout{% if not has_impact %} profile-overview-layout--single{% endif %}">
       <div class="profile-overview-stack">
+        {% if has_leadership or has_financials %}
         <section class="profile-section compact overview-section">
-          <div class="overview-split overview-split--two">
+          <div class="overview-split {% if has_leadership and has_financials %}overview-split--two{% else %}overview-split--one{% endif %}">
+            {% set leadership = composition.get('leadership') or {} %}
+            {% if has_leadership %}
             <div class="overview-panel">
               <h2><i class="fas fa-users-cog"></i> Leadership</h2>
               {# A parsed report usually names more people than the three fixed
                  slots can hold, so show the real roster when we have one. #}
-              {% set narrative_leaders = (profile.get('narrative_profile') or {}).get('leadership') or [] %}
-              {% if narrative_leaders %}
+              {% if leadership.get('variant') == 'roster' %}
                 <ul class="fp-people fp-people--inline">
-                  {% for person in narrative_leaders %}
+                  {% for person in leadership.get('people') or [] %}
                   <li class="fp-person">
                     <span class="fp-person__avatar" aria-hidden="true">{{ (person.get('name') or '?')[0]|upper }}</span>
                     <div class="fp-person__body">
@@ -235,19 +370,21 @@
                   {% endfor %}
                 </ul>
               {% else %}
+                {% set slots = leadership.get('slots') or {} %}
                 <ul class="leadership-list">
-                  <li><i class="fas fa-user-tie"></i> <strong>Chair:</strong> {{ lead.get('chairperson', cbo.chairperson) or '—' }}</li>
-                  <li><i class="fas fa-user-cog"></i> <strong>Director:</strong> {{ lead.get('program_director', cbo.program_director) or '—' }}</li>
-                  <li><i class="fas fa-user-shield"></i> <strong>Finance:</strong> {{ lead.get('finance_lead', cbo.finance_lead) or '—' }}</li>
+                  {% if slots.get('chairperson') %}<li><i class="fas fa-user-tie"></i> <strong>Chair:</strong> {{ slots.chairperson }}</li>{% endif %}
+                  {% if slots.get('program_director') %}<li><i class="fas fa-user-cog"></i> <strong>Director:</strong> {{ slots.program_director }}</li>{% endif %}
+                  {% if slots.get('finance_lead') %}<li><i class="fas fa-user-shield"></i> <strong>Finance:</strong> {{ slots.finance_lead }}</li>{% endif %}
                 </ul>
               {% endif %}
               {% if profile.get('governance_note') %}
                 <p class="governance-note"><em>"{{ profile.governance_note }}"</em></p>
               {% endif %}
             </div>
+            {% endif %}
 
             {% set financial_cards = profile.get('financial_overview_cards', []) %}
-            {% if financial_cards or fin %}
+            {% if has_financials %}
             <div class="overview-panel overview-panel--tinted">
               <h2><i class="fas fa-coins"></i> Financial Overview</h2>
               <div class="financial-grid-compact">
@@ -284,8 +421,10 @@
             {% endif %}
           </div>
         </section>
+        {% endif %}
       </div>
 
+      {% if has_impact %}
       <div class="profile-spotlight-column">
         <section class="profile-section compact impact-section profile-section--flush">
           <h2><i class="fas fa-chart-line"></i> Social Impact</h2>
@@ -331,9 +470,12 @@
           </div>
         </section>
       </div>
+      {% endif %}
+    </div>
     </div>
 
     <!-- ── FULL-WIDTH: Flagship + Community Feedback + Join Us ── -->
+    <div data-profile-section="stories" class="{% if funder_layout and 'stories' in funder_layout.emphasized %}is-emphasized{% endif %}{% if funder_layout and 'stories' in funder_layout.collapsed %} is-collapsed{% endif %}">
     <section class="profile-section compact overview-section">
       {% set overview_panels = namespace(count=1) %}
       {% if fp %}{% set overview_panels.count = overview_panels.count + 1 %}{% endif %}
@@ -377,7 +519,7 @@
 
         <div class="overview-panel story-section community-feedback-story-card" data-feedback-card>
           <div class="community-feedback-story-card__header">
-            <h2><i class="fas fa-comments"></i> Community Feedback</h2>
+            <h2><i class="fas fa-comments"></i> Community Feedback{% if cbo.name %} <span class="community-feedback-cbo-name">for {{ cbo.name }}</span>{% endif %}</h2>
             {% if feedback_entries|length > 1 %}
             <button type="button" class="community-feedback-story-card__next" data-feedback-next aria-label="Show next community feedback response">
               <i class="fas fa-chevron-right"></i>
@@ -410,7 +552,7 @@
               <span><strong>{{ community_feedback.avg_rating if community_feedback.avg_rating is not none else '—' }}</strong> avg rating</span>
             </div>
           {% else %}
-            <p class="community-feedback-empty">No community responses have been captured for this CBO yet.</p>
+            <p class="community-feedback-empty">No community SMS responses have been captured for {{ cbo.name }} yet.{% if community_feedback.keyword %} Community members can text <strong>{{ community_feedback.keyword }}</strong> to the Kumbu Connect number to leave feedback tied to this CBO.{% endif %}</p>
           {% endif %}
         </div>
 
@@ -422,11 +564,23 @@
         {% endif %}
       </div>
     </section>
+    </div>
+    {% if composition.get('highlights') %}
+    <section class="profile-section compact web-highlights-section">
+      <h2><i class="fas fa-globe"></i> Added from public sources</h2>
+      <ul class="web-highlights-list">
+        {% for item in composition.highlights[:6] %}
+          <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
 
     <!-- ── Parsed report detail (fields come from the uploaded document, not a fixed schema) ── -->
-    {% set narrative = profile.get('narrative_profile') or {} %}
+    {% set narrative = composition.get('narrative') or profile.get('narrative_profile') or {} %}
     {% set program_overview = narrative.get('program_overview') or [] %}
     {% set can_manage_program_photos = can_manage_program_photos|default(own) %}
+    <div data-profile-section="programs" class="{% if funder_layout and 'programs' in funder_layout.emphasized %}is-emphasized{% endif %}{% if funder_layout and 'programs' in funder_layout.collapsed %} is-collapsed{% endif %}">
     {% if program_overview or can_manage_program_photos %}
     <div class="profile-section-divider" aria-hidden="true">
       <span>Program Overview</span>
@@ -436,18 +590,23 @@
       cbo,
       can_manage=can_manage_program_photos,
       from_dashboard=own and not isolated_view,
-      selected_key=request.args.get('program', '')
+      selected_key=request.args.get('program', ''),
+      show_media=(composition.get('programs') or {}).get('show_media', true)
     ) }}
     {% endif %}
+    </div>
 
+    <div id="section-detail" data-profile-section="narrative" class="{% if funder_layout and 'narrative' in funder_layout.emphasized %}is-emphasized{% endif %}{% if funder_layout and 'narrative' in funder_layout.collapsed %} is-collapsed{% endif %}">
     {% if narrative.get('sections') or narrative.get('metrics') or narrative.get('assessment') %}
     <div class="profile-section-divider" aria-hidden="true">
       <span>Organisation Detail</span>
     </div>
     {{ render_narrative_profile(narrative) }}
     {% endif %}
+    </div>
 
     <!-- ── ROW 3: GROWTH CHARTS (2×2 grid) ────────────────────── -->
+    <div id="section-growth" data-profile-section="growth" class="{% if funder_layout and 'growth' in funder_layout.emphasized %}is-emphasized{% endif %}{% if funder_layout and 'growth' in funder_layout.collapsed %} is-collapsed{% endif %}">
     {% set growth_data = _safe_json_inline(cbo.growth_metrics_json) %}
     {% set growth_chart_ns = namespace(configs=profile.get('growth_charts', [])) %}
     {% if not growth_chart_ns.configs %}
@@ -482,8 +641,10 @@
       </div>
     </section>
     {% endif %}
+    </div>
 
     <!-- ── SOCIAL IMPACT SCORE ─────────────────────────────────── -->
+    <div id="section-score" data-profile-section="score" class="{% if funder_layout and 'score' in funder_layout.emphasized %}is-emphasized{% endif %}{% if funder_layout and 'score' in funder_layout.collapsed %} is-collapsed{% endif %}">
     {% set rationale = profile.get('social_impact_score_rationale') %}
     {% if cbo.social_impact_score %}
     <div class="profile-section-divider profile-section-divider--tight" aria-hidden="true">
@@ -500,6 +661,11 @@
       {% endif %}
     </section>
     {% endif %}
+    </div>
+
+    {% if can_review_public_sources %}
+    {{ render_web_research_panel(cbo, web_research, can_manage=true) }}
+    {% endif %}
 
     <!-- ── ACTIONS ─────────────────────────────────────────────── -->
     {% if not isolated_view %}
@@ -507,51 +673,14 @@
       {{ render_cbo_contact_inbox(cbo, contact_post_url, contact_threads, anchor_id='contact-cbo') }}
     {% endif %}
     <div class="profile-actions">
-      {% if own %}
-        <div class="kobo-connection-panel {% if cbo.has_kobo_connection %}kobo-connection-panel--connected{% else %}kobo-connection-panel--disconnected{% endif %}">
-          <div class="kobo-connection-copy">
-            <span class="kobo-connection-eyebrow">KoboToolbox API</span>
-            {% if cbo.has_kobo_connection %}
-              <strong>Connected</strong>
-              <p>Live sync is enabled for this CBO profile.</p>
-            {% else %}
-              <strong>Disconnected</strong>
-              <p>
-                Live Kobo sync has been terminated for this profile.
-                {% if cbo.kobo_disconnected_at %}
-                  Disconnected on {{ cbo.kobo_disconnected_at.strftime('%B %d, %Y at %H:%M UTC') }}.
-                {% endif %}
-              </p>
-            {% endif %}
-          </div>
-          {% if cbo.has_kobo_connection %}
-            <form method="POST" action="{{ url_for('main.disconnect_kobo', cbo_id=cbo.id) }}" onsubmit="return confirm('Terminate the KoboToolbox API connection for this CBO? Future syncs will stop until the connection is set up again.');">
-              <button type="submit" class="btn btn-danger">
-                <i class="fas fa-plug-circle-xmark"></i> Terminate API Connection
-              </button>
-            </form>
-          {% endif %}
-        </div>
-      {% endif %}
-      {% if own or viewer_is_funder %}
-        <form method="POST" action="{{ url_for('main.sync_cbo', cbo_id=cbo.id) }}" class="sync-form">
-          <button type="submit" class="btn btn-primary btn-lg" id="syncBtn" {% if not cbo.has_kobo_connection %}disabled{% endif %}>
-            <i class="fas fa-sync-alt"></i> Sync with KoboToolbox &amp; Refresh AI Profile
-          </button>
-        </form>
-        {% if cbo.last_synced %}
-          <p class="last-sync">Last synced: {{ cbo.last_synced.strftime('%B %d, %Y at %H:%M UTC') }}</p>
-        {% endif %}
-        {% if not cbo.has_kobo_connection %}
-          <p class="last-sync">KoboToolbox sync is disabled for this CBO.</p>
-        {% endif %}
-      {% endif %}
       <a href="{{ url_for('main.marketplace') if not own else url_for('main.cbo_dashboard') }}" class="btn btn-outline">
         <i class="fas fa-arrow-left"></i> Back
       </a>
     </div>
     {% endif %}
 
+    </div>
+    </div><!-- end profile-stage -->
     </div><!-- end tab-profile -->
     {% endif %}
 
@@ -969,6 +1098,8 @@ bindProfileSyncButton();
 initFeedbackStoryCards();
 initProfileContactModal();
 initProgramOverview();
+initDetailBands();
+initProfileJumpNav();
 
 let profileRefreshTimer = 0;
 let profileRefreshInFlight = null;
@@ -1014,6 +1145,93 @@ function initFeedbackStoryCards(scope = document) {
     card.dataset.feedbackBound = 'true';
     renderFeedbackStoryCard();
   });
+}
+
+/* Fills the side rail as the reader moves down the profile. Circles already
+   passed stay filled, and the one for the section on screen is the current
+   stop. The links are plain anchors and work without this. */
+function initProfileJumpNav() {
+  const nav = document.querySelector('.profile-rail');
+  if (!nav || nav.dataset.jumpBound === 'true') {
+    return;
+  }
+  nav.dataset.jumpBound = 'true';
+
+  const links = Array.from(nav.querySelectorAll('[data-profile-jump]'));
+  const targets = links
+    .map((link) => ({
+      link,
+      item: link.closest('.profile-rail__item'),
+      section: document.getElementById(link.dataset.profileJump),
+    }))
+    .filter((entry) => entry.section);
+  if (!targets.length) {
+    return;
+  }
+
+  function markCurrent() {
+    const cutoff = 120;
+    let currentIndex = 0;
+    targets.forEach((entry, index) => {
+      if (entry.section.getBoundingClientRect().top <= cutoff) {
+        currentIndex = index;
+      }
+    });
+    targets.forEach((entry, index) => {
+      entry.link.classList.toggle('is-current', index === currentIndex);
+      if (entry.item) {
+        entry.item.classList.toggle('is-current', index === currentIndex);
+        entry.item.classList.toggle('is-passed', index < currentIndex);
+      }
+    });
+  }
+
+  let queued = false;
+  window.addEventListener('scroll', () => {
+    if (queued) return;
+    queued = true;
+    window.requestAnimationFrame(() => {
+      queued = false;
+      markCurrent();
+    });
+  }, { passive: true });
+  markCurrent();
+}
+
+/* The four Organisation Detail bands share one viewport as tabs. They are all
+   rendered; this only chooses which is on screen, so the page still works with
+   the script disabled. */
+function initDetailBands(scope = document) {
+  const root = scope.querySelector('[data-fp-bands]');
+  if (!root || root.dataset.fpBandsReady === 'true') {
+    return;
+  }
+
+  const tabs = Array.from(root.querySelectorAll('[data-fp-bandtab]'));
+  const panels = Array.from(root.querySelectorAll('[data-fp-bandpanel]'));
+  if (tabs.length < 2 || !panels.length) {
+    return;
+  }
+  root.dataset.fpBandsReady = 'true';
+
+  function showBand(key) {
+    tabs.forEach((tab) => {
+      const isActive = tab.dataset.fpBandtab === key;
+      tab.classList.toggle('is-active', isActive);
+      tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    panels.forEach((panel) => {
+      const isActive = panel.dataset.fpBandpanel === key;
+      panel.classList.toggle('is-active', isActive);
+      panel.hidden = !isActive;
+    });
+  }
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => showBand(tab.dataset.fpBandtab));
+  });
+
+  showBand(tabs[0].dataset.fpBandtab);
 }
 
 function initProgramOverview(scope = document) {
@@ -1174,7 +1392,7 @@ function closeProfileContactModal(modal) {
 }
 
 function syncProfileContactModalFromHash() {
-  if (window.location.hash === '#contact-funder') {
+  if (window.location.hash === '#contact-funder' || {{ 'true' if open_contact else 'false' }}) {
     openProfileContactModal('contact-funder-modal');
   }
 }
@@ -1268,6 +1486,7 @@ async function refreshProfileViewFromServer() {
     bindProfileSyncButton();
     initFeedbackStoryCards(currentProfileTab || document);
     initProfileContactModal();
+    initDetailBands(currentProfileTab || document);
     initProfileGrowthCharts();
   }).catch(error => {
     console.warn(error);

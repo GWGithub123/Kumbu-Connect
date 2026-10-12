@@ -419,7 +419,7 @@ def _extract_bookkeeping_document_hybrid(document_pages: list[dict], filename: s
                 cbo,
                 related_page_upload=related_page_upload,
             )
-            normalization_provider = current_app.config.get('BOOKKEEPING_VISION_MODEL', 'gemini-3.5-flash')
+            normalization_provider = current_app.config.get('BOOKKEEPING_VISION_MODEL', 'gemini-3.8-flash')
         except BookkeepingExtractionError as exc:
             current_app.logger.warning(
                 'Gemini bookkeeping normalization failed for %s; keeping Azure raw transcription: %s',
@@ -467,7 +467,7 @@ def _gemini_bookkeeping_client(api_key: str) -> genai.Client:
 
 
 def _bookkeeping_vision_model() -> str:
-    return str(current_app.config.get('BOOKKEEPING_VISION_MODEL') or 'gemini-3.5-flash').strip() or 'gemini-3.5-flash'
+    return str(current_app.config.get('BOOKKEEPING_VISION_MODEL') or 'gemini-3.8-flash').strip() or 'gemini-3.8-flash'
 
 
 def _extract_bookkeeping_document_with_gemini_vision(document_pages: list[dict], filename: str, cbo, related_page_upload: bool = False) -> dict:

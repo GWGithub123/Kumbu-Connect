@@ -1,3 +1,4 @@
+{% from "_web_research_panel.html" import render_web_research_panel %}
 {% macro bookkeeping_column_class(column_name) -%}
 {%- set column = (column_name or '')|lower -%}
 {%- if 'date' in column -%}
@@ -908,6 +909,17 @@ bookkeeping-table__col--text
     {% endif %}
   </div>
 
+  {% if web_research is defined %}
+  <div class="bk-section-label">
+    <span class="bookkeeping-eyebrow">Public Profile Vetting</span>
+    <h3>Google Search &amp; CBO Verification</h3>
+  </div>
+  <div class="bk-audit-panel">
+    <p class="panel-help-text">Use the same public-web search that runs during SMS onboarding to check articles, sites, and headlines about this CBO. Confirmed facts stay on the profile; unconfirmed notes wait for the organisation.</p>
+    {{ render_web_research_panel(cbo, web_research, can_manage=can_manage_bookkeeping) }}
+  </div>
+  {% endif %}
+
   <!-- ═══════════════════════════════════════════════════════════
        FUNDING AUDIT RESULTS
        ═══════════════════════════════════════════════════════════ -->
@@ -927,7 +939,6 @@ bookkeeping-table__col--text
 
   <div class="funding-audit-breakdown">
     <span>Bookkeeping-derived: <strong>KSh {{ '%.2f'|format(funding_audit_summary.bookkeeping_charitable_giving_total) }}</strong></span>
-    <span>Kobo-derived: <strong>KSh {{ '%.2f'|format(funding_audit_summary.kobo_charitable_giving_total) }}</strong></span>
   </div>
 
   {% if funding_audit_summary.overall_funding_gap %}

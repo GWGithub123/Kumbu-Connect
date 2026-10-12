@@ -889,7 +889,7 @@ def _normalize_programs(raw_programs) -> list[dict]:
             ),
             'source': _clean_choice(
                 raw_program.get('source'),
-                {'extracted', 'manual', 'flagship', 'entry', 'photo'},
+                {'extracted', 'manual', 'flagship', 'entry', 'photo', 'web'},
                 'extracted',
             ),
         })
@@ -1365,7 +1365,7 @@ def _gemini_api_key() -> str:
 
 
 def _narrative_model() -> str:
-    return str(current_app.config.get('NARRATIVE_DOCUMENT_MODEL') or 'gemini-3.5-flash').strip() or 'gemini-3.5-flash'
+    return str(current_app.config.get('NARRATIVE_DOCUMENT_MODEL') or 'gemini-3.8-flash').strip() or 'gemini-3.8-flash'
 
 
 def _request_timeout() -> int:

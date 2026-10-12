@@ -1,0 +1,154 @@
+{% macro render_web_research_panel(cbo, web_research, can_manage=false) %}
+{% set research = web_research or {} %}
+{% set receipt = research.applied_receipt or {} %}
+<section class="profile-section public-sources-section" id="public-sources" data-profile-section="public_sources">
+  <div class="public-sources-header">
+    <div>
+      <h2><i class="fas fa-globe"></i> Public sources</h2>
+      <p class="public-sources-lede">
+        {% if research.summary %}{{ research.summary }}
+        {% elif can_manage %}Search the public web for articles, sites, and extra facts, then confirm what should be added to this existing CBO profile. Confirmed details fill gaps; they do not replace the core record.
+        {% else %}Public articles and sites used to help populate this CBO profile. Confirmed facts stay; unverified notes wait for the organisation.{% endif %}
+      </p>
+    </div>
+    {% if can_manage %}
+    <form method="POST" action="{{ url_for('main.refresh_cbo_public_research', cbo_id=cbo.id) }}">
+      <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-magnifying-glass"></i> {{ 'Search again' if research.has_results else 'Gather information from the web' }}</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if receipt.latest_count or receipt.added_count %}
+    {% set added = receipt.latest_count or receipt.added_count %}
+    <div class="public-sources-receipt" role="status">
+      <strong>{{ added }} fact{{ 's' if added != 1 else '' }} were approved and added</strong>
+      <span>They now live on this profile — leadership, background, and organisation detail update as soon as you confirm them.</span>
+      {% if receipt.labels %}
+        <ul>
+          {% for label in receipt.labels[:8] %}
+            <li>{{ label }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if can_manage and not research.has_results %}
+    <div class="public-sources-empty">
+      <p>This CBO already has a base profile. Run a public-web search to pull additional programs, news, a website, or missing location and focus details.</p>
+    </div>
+  {% endif %}
+
+  {% if research.error and not research.articles %}
+    <p class="community-feedback-empty">{{ research.error }}</p>
+  {% endif %}
+
+  {% if research.claims or research.suggestion_items or research.media_items or research.profile_images %}
+    {% if can_manage %}
+    <form method="POST" action="{{ url_for('main.confirm_cbo_public_research', slug=cbo.slug) }}" class="public-sources-claims">
+      {% if research.suggestion_items %}
+        <h3 class="public-sources-subhead">Suggested profile additions</h3>
+        <p class="public-sources-lede">Checked items are added into empty or placeholder fields and filed into the organisation-detail panels. Existing custom text stays unless you explicitly replace a gap.</p>
+        <ul class="public-sources-suggestions">
+          {% for item in research.suggestion_items %}
+          <li class="public-source-claim {% if item.fills_gap %}is-gap{% endif %}">
+            <label>
+              <input type="checkbox" name="apply_suggestion" value="{{ item.key }}" {% if item.fills_gap %}checked{% endif %}>
+              <span>
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.proposed }}</span>
+                {% if item.current %}<small>Currently: {{ item.current }}</small>{% endif %}
+              </span>
+            </label>
+          </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      {% if research.profile_images %}
+        <h3 class="public-sources-subhead">Profile image</h3>
+        <p class="public-sources-lede">The checked mark is saved as this organisation’s profile image. Leave it unchecked to skip it.</p>
+        <ul class="public-sources-media public-sources-media--logo">
+          {% for photo in research.profile_images %}
+          <li>
+            <label>
+              <input type="checkbox" name="apply_profile_image" value="{{ photo.id }}" {% if loop.first %}checked{% endif %}>
+              <img src="{{ photo.url }}" alt="{{ photo.alt or 'Organisation logo' }}">
+              <span>{{ photo.alt or 'Logo' }}</span>
+            </label>
+          </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      {% if research.media_items %}
+        <h3 class="public-sources-subhead">Photos for Program Overview</h3>
+        <p class="public-sources-lede">Checked photos are saved onto the matching program. They stay on this profile after you confirm them.</p>
+        <ul class="public-sources-media">
+          {% for photo in research.media_items %}
+          <li>
+            <label>
+              <input type="checkbox" name="apply_media" value="{{ photo.id }}" checked>
+              <img src="{{ photo.url }}" alt="{{ photo.alt or photo.program or 'Program photo' }}">
+              <span>{{ photo.program or photo.alt or 'Program photo' }}</span>
+            </label>
+          </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      {% if research.claims %}
+        <h3 class="public-sources-subhead">Public facts to confirm</h3>
+        <ul>
+          {% for claim in research.claims %}
+          <li class="public-source-claim">
+            <label>
+              <input type="checkbox" name="verified_claim_id" value="{{ claim.id }}" checked>
+              <span>
+                <strong>{{ claim.headline or claim.fact }}</strong>
+                {% if claim.fact and claim.headline and claim.fact != claim.headline %}<span>{{ claim.fact }}</span>{% endif %}
+                {% if claim.source_title %}<small>{{ claim.source_title }}</small>{% endif %}
+              </span>
+            </label>
+            {% if claim.source_url %}
+              <a href="{{ claim.source_url }}" target="_blank" rel="noopener">Source</a>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      <div class="public-sources-actions">
+        <button type="submit" name="action" value="partial" class="btn btn-primary btn-sm">Add checked details to profile</button>
+        <button type="submit" name="action" value="accept_all" class="btn btn-outline btn-sm">Confirm all</button>
+        <button type="submit" name="action" value="reject_all" class="btn btn-outline btn-sm">Reject all</button>
+      </div>
+    </form>
+    {% endif %}
+  {% elif can_manage and not receipt.latest_count and not receipt.added_count %}
+    <p class="community-feedback-empty">No public facts are waiting for review.</p>
+  {% endif %}
+
+  {% if not can_manage and research.applied_claims %}
+    <ul class="public-sources-claims public-sources-claims--readonly">
+      {% for claim in research.applied_claims %}
+      <li class="public-source-claim is-verified">
+        <strong>{{ claim.headline or claim.fact }}</strong>
+        {% if claim.source_url %}<a href="{{ claim.source_url }}" target="_blank" rel="noopener">Source</a>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if research.articles %}
+    <div class="public-sources-articles">
+      {% for article in research.articles[:4] %}
+        <a class="public-source-article" href="{{ article.link }}" target="_blank" rel="noopener">
+          <strong>{{ article.title }}</strong>
+          {% if article.display_link %}<span>{{ article.display_link }}</span>{% endif %}
+          {% if article.snippet %}<p>{{ article.snippet }}</p>{% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+{% endmacro %}

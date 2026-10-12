@@ -71,13 +71,6 @@ Rules:
 - Confidence values must be between 0 and 1.
 """
 
-OUTFLOW_KEYWORDS = (
-    'charit', 'charity', 'donat', 'support', 'scholar', 'relief',
-    'aid', 'bursar', 'grant_given', 'grant_disbursed', 'beneficiary', 'giving',
-)
-INCOMING_KEYWORDS = (
-    'receive', 'received', 'funding', 'funder', 'capital', 'income', 'revenue', 'grant_received',
-)
 DESCRIPTION_OUTFLOW_WORDS = (
     'charity', 'charitable', 'donation', 'donated', 'support', 'scholarship',
     'relief', 'aid', 'bursary', 'beneficiary', 'grant',
@@ -274,11 +267,10 @@ def observed_charitable_giving(cbo, period_start: str = '', period_end: str = ''
     start_date = _parse_date(period_start)
     end_date = _parse_date(period_end)
     bookkeeping_total = round(_bookkeeping_charitable_giving(cbo, start_date, end_date), 2)
-    kobo_total = round(_kobo_charitable_giving(cbo, start_date, end_date), 2)
     return {
         'bookkeeping_total': bookkeeping_total,
-        'kobo_total': kobo_total,
-        'total': round(bookkeeping_total + kobo_total, 2),
+        'kobo_total': 0,
+        'total': bookkeeping_total,
     }
 
 
@@ -415,63 +407,6 @@ def _is_charitable_bookkeeping_entry(entry: dict) -> bool:
     return any(word in description for word in DESCRIPTION_OUTFLOW_WORDS)
 
 
-def _kobo_charitable_giving(cbo, start_date: datetime | None, end_date: datetime | None) -> float:
-    try:
-        submissions = json.loads(cbo.raw_kobo_json or '[]')
-    except (json.JSONDecodeError, TypeError):
-        submissions = []
-
-    total = 0.0
-    for submission in submissions if isinstance(submissions, list) else []:
-        if not isinstance(submission, dict):
-            continue
-        submission_date = _extract_submission_date(submission)
-        if (start_date or end_date) and not submission_date:
-            continue
-        if not _date_in_range(submission_date, start_date, end_date):
-            continue
-        total += _scan_for_outflow_values(submission)
-    return total
-
-
-def _scan_for_outflow_values(value, key_hint: str = '') -> float:
-    total = 0.0
-    if isinstance(value, dict):
-        for key, nested in value.items():
-            key_text = str(key or '')
-            if _key_suggests_outflow(key_text) and _is_numeric_like(nested):
-                total += _coerce_amount(nested)
-            else:
-                total += _scan_for_outflow_values(nested, key_hint=key_text)
-        return total
-    if isinstance(value, list):
-        return sum(_scan_for_outflow_values(item, key_hint=key_hint) for item in value)
-    if key_hint and _key_suggests_outflow(key_hint) and _is_numeric_like(value):
-        return _coerce_amount(value)
-    return 0.0
-
-
-def _key_suggests_outflow(key: str) -> bool:
-    normalized = re.sub(r'[^a-z0-9]+', '_', str(key or '').strip().lower())
-    if not normalized:
-        return False
-    if any(marker in normalized for marker in INCOMING_KEYWORDS):
-        return False
-    return any(marker in normalized for marker in OUTFLOW_KEYWORDS)
-
-
-def _extract_submission_date(submission: dict) -> datetime | None:
-    for key in (
-        'submission_date', 'date', 'created_at', 'submitted_at', '_submission_time',
-        'period_start', 'transaction_date', 'entry_date',
-    ):
-        date_value = submission.get(key)
-        parsed = _parse_date(date_value)
-        if parsed:
-            return parsed
-    return None
-
-
 def _normalize_choice(value, allowed: set[str], fallback: str) -> str:
     normalized = str(value or '').strip().lower()
     return normalized if normalized in allowed else fallback
@@ -525,13 +460,6 @@ def _date_in_range(candidate: datetime | None, start_date: datetime | None, end_
     if end_date and candidate.date() > end_date.date():
         return False
     return True
-
-
-def _is_numeric_like(value) -> bool:
-    if isinstance(value, (int, float)):
-        return True
-    cleaned = re.sub(r'[^0-9.\-]', '', str(value or ''))
-    return bool(cleaned and re.search(r'\d', cleaned))
 
 
 def _clean_string_list(values) -> list[str]:

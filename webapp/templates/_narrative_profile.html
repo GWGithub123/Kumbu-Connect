@@ -368,7 +368,38 @@
     {% set journey = narrative.get('journey') or {} %}
     {% set past_steps = journey.get('past') or [] %}
     {% set future_steps = journey.get('future') or [] %}
+    {% set journey_layout = narrative.get('journey_layout') or ('rail' if (past_steps|length + future_steps|length) >= 4 else 'compact') %}
     {% if past_steps or future_steps %}
+    {% if journey_layout == 'compact' %}
+    {# Too few stops to justify the rail: its alternating axis would reserve
+       far more height than two or three cards can fill. #}
+    <section class="fp-journey fp-journey--compact">
+      <header class="fp-block__header">
+        <h3><i class="fas fa-route" aria-hidden="true"></i> {{ 'Milestones' if not future_steps else 'Milestones &amp; Next Steps' }}</h3>
+        <p>{% if future_steps %}What this organisation has done so far, and what it says comes next.{% else %}What this organisation has reached so far.{% endif %}</p>
+      </header>
+      <ol class="fp-steps" role="list">
+        {% for step in past_steps + future_steps %}
+        {% set ahead = loop.index > past_steps|length %}
+        <li class="fp-step fp-step--{{ step.get('status', 'done' if not ahead else 'planned') }}{% if ahead %} fp-step--ahead{% endif %}">
+          <div class="fp-step__meta">
+            {% if step.get('when') %}<span class="fp-step__when">{{ step.when }}</span>{% endif %}
+            <span class="fp-status fp-status--{{ step.get('status', 'done' if not ahead else 'planned') }}">{{ step.get('status', 'done' if not ahead else 'planned')|replace('_', ' ')|title }}</span>
+          </div>
+          <p class="fp-step__title">{{ step.title }}</p>
+          {% if step.get('summary') %}<p class="fp-step__summary">{{ step.summary }}</p>{% endif %}
+          {% if step.get('detail') %}
+            {% if step.get('expanded') %}
+              <p class="fp-step__summary">{{ step.detail }}</p>
+            {% else %}
+              <details class="fp-disclosure"><summary>Details</summary><p>{{ step.detail }}</p></details>
+            {% endif %}
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+    </section>
+    {% else %}
     <section class="fp-journey">
       <header class="fp-block__header">
         <h3><i class="fas fa-route" aria-hidden="true"></i> Journey &amp; Roadmap</h3>
@@ -422,8 +453,55 @@
       <p class="fp-rail__hint"><i class="fas fa-arrows-left-right" aria-hidden="true"></i> Scroll sideways to follow the full timeline</p>
     </section>
     {% endif %}
+    {% endif %}
 
-    {# ── Fixed panel set, banded into the order a funder reads them ── #}
+    {# ── Fixed panel set, banded into the order a funder reads them ──
+
+       Stacked, the four bands run to roughly half the page. They cover four
+       separate questions and are rarely read end to end, so they share one
+       viewport as tabs. Without JavaScript every band stays visible. #}
+    {% if panel_bands|length > 1 %}
+    <div class="fp-bands" data-fp-bands>
+      <div class="fp-bandtabs" role="tablist" aria-label="Organisation detail sections">
+        {% for band in panel_bands %}
+        <button
+          type="button"
+          class="fp-bandtab{% if loop.first %} is-active{% endif %}"
+          role="tab"
+          id="fp-bandtab-{{ band.key }}"
+          data-fp-bandtab="{{ band.key }}"
+          aria-controls="fp-band-{{ band.key }}"
+          aria-selected="{{ 'true' if loop.first else 'false' }}"
+        >
+          <span class="fp-bandtab__icon" aria-hidden="true"><i class="fas {{ band.icon }}"></i></span>
+          <span class="fp-bandtab__title">{{ band.title }}</span>
+          <span class="fp-bandtab__count">{{ band.panels|length }}</span>
+        </button>
+        {% endfor %}
+      </div>
+      {% for band in panel_bands %}
+      <section
+        class="fp-band fp-band--{{ band.key }}{% if loop.first %} is-active{% endif %}"
+        id="fp-band-{{ band.key }}"
+        data-fp-bandpanel="{{ band.key }}"
+        role="tabpanel"
+        aria-labelledby="fp-bandtab-{{ band.key }}"
+      >
+        <header class="fp-band__header fp-band__header--tabbed">
+          <span class="fp-band__icon" aria-hidden="true"><i class="fas {{ band.icon }}"></i></span>
+          <h3 class="fp-band__title">{{ band.title }}</h3>
+          <span class="fp-band__rule" aria-hidden="true"></span>
+          <span class="fp-band__count">{{ band.panels|length }}</span>
+        </header>
+        <div class="fp-panels" style="--fp-cols: {{ band.get('columns', 3) }}">
+          {% for panel in band.panels %}
+            {{ render_panel(panel) }}
+          {% endfor %}
+        </div>
+      </section>
+      {% endfor %}
+    </div>
+    {% else %}
     {% for band in panel_bands %}
     <section class="fp-band fp-band--{{ band.key }}">
       <header class="fp-band__header">
@@ -439,6 +517,7 @@
       </div>
     </section>
     {% endfor %}
+    {% endif %}
 
     {% if narrative.get('source_filename') %}
       <p class="fp-source"><i class="fas fa-file-lines" aria-hidden="true"></i> Parsed from {{ narrative.source_filename }}</p>

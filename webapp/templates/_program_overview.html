@@ -6,9 +6,12 @@
 {% from "_narrative_profile.html" import render_field, entry_status %}
 
 
-{% macro render_program_overview(programs, cbo, can_manage=false, from_dashboard=false, selected_key='') %}
+{% macro render_program_overview(programs, cbo, can_manage=false, from_dashboard=false, selected_key='', show_media=true) %}
 {% set programs = programs or [] %}
 {% set can_manage = can_manage|default(false) %}
+{# An empty photo frame advertises the missing photos. A reader who cannot
+   upload any is better served by the detail taking the full width. #}
+{% set show_media = show_media if show_media is defined else true %}
 {% set selected_keys = programs|map(attribute='key')|list %}
 {% set active_key = selected_key if selected_key in selected_keys else (selected_keys[0] if selected_keys else '') %}
 {% if programs or can_manage %}
@@ -57,7 +60,8 @@
     aria-labelledby="program-tab-{{ program.key }}"
     {% if not is_active %}hidden{% endif %}
   >
-    <div class="po__stage">
+    <div class="po__stage{% if not show_media %} po__stage--textonly{% endif %}">
+      {% if show_media %}
       <div class="po__photos" data-program-carousel="photos">
         <div class="po__photos-frame">
           {% if program.photos %}
@@ -113,6 +117,7 @@
         </form>
         {% endif %}
       </div>
+      {% endif %}
 
       <div class="po__details" data-program-carousel="details">
         <div class="po__details-toolbar">
