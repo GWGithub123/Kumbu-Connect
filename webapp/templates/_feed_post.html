@@ -1,0 +1,77 @@
+{% macro render_feed_post(item, post_index='post') %}
+{% set name_parts = item.cbo_name.split() %}
+{% set initials = ((name_parts[0][:1] if name_parts else '') ~ (name_parts[1][:1] if name_parts|length > 1 else ''))|upper %}
+{% set kind_label = item.title.split(' from ')[0] if item.title and ' from ' in item.title else (item.title or 'Update') %}
+<article class="interest-post" data-cbo-slug="{{ item.cbo_slug }}" {% if item.activity_id %}data-activity-id="{{ item.activity_id }}"{% endif %}>
+  <header class="interest-post__top">
+    <div class="interest-post__avatar" aria-hidden="true">{{ initials or 'C' }}</div>
+    <div class="interest-post__identity">
+      <a class="interest-post__name" href="{{ item.profile_url }}">{{ item.cbo_name }}</a>
+      <span class="interest-post__headline">{{ kind_label }}{% if item.interest_labels %} · {{ item.interest_labels|join(' · ') }}{% endif %}</span>
+      <span class="interest-post__time">{% if item.when_label %}{{ item.when_label }} · {% endif %}<i class="fas fa-globe-americas" aria-hidden="true"></i> Public</span>
+    </div>
+  </header>
+  <div class="interest-post__copy">
+    {% if item.body|length > 180 %}
+    <input type="checkbox" id="interest-post-{{ post_index }}" class="interest-post__more-toggle">
+    {% endif %}
+    <p>{{ item.body }}</p>
+    {% if item.body|length > 180 %}
+    <label for="interest-post-{{ post_index }}">…more</label>
+    {% endif %}
+  </div>
+  {% if item.photos %}
+  <div class="interest-post__photos{% if item.photos|length > 1 %} interest-post__photos--multi{% endif %}">
+    {% for photo in item.photos %}
+    <img src="{{ photo.url }}" alt="{{ photo.alt }}">
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if item.activity_id and (item.can_react or item.like_count or item.comment_count) %}
+  <div class="interest-post__social">
+    {% if item.can_react %}
+    <button type="button" class="interest-post__like{% if item.liked %} is-liked{% endif %}" data-feed-like data-activity-id="{{ item.activity_id }}" data-like-url="{{ url_for('main.api_toggle_feed_like', activity_id=item.activity_id) }}" aria-pressed="{{ 'true' if item.liked else 'false' }}">
+      <i class="{{ 'fas' if item.liked else 'far' }} fa-thumbs-up" aria-hidden="true"></i>
+      <span data-like-count>{{ item.like_count or 0 }}</span>
+    </button>
+    {% else %}
+    <span class="interest-post__like-count"><i class="far fa-thumbs-up" aria-hidden="true"></i> {{ item.like_count or 0 }}</span>
+    {% endif %}
+    <span class="interest-post__comment-count"><i class="far fa-comment" aria-hidden="true"></i> {{ item.comment_count or 0 }}</span>
+  </div>
+  {% if item.comments %}
+  <ul class="interest-post__comments">
+    {% for comment in item.comments %}
+    <li>
+      <strong>{{ comment.author }}</strong>
+      <span>{{ comment.body }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if item.can_react %}
+  <form class="interest-post__comment-form" method="post" action="{{ url_for('main.api_create_feed_comment', activity_id=item.activity_id) }}" data-feed-comment-form data-comment-url="{{ url_for('main.api_create_feed_comment', activity_id=item.activity_id) }}">
+    <input type="text" name="body" maxlength="500" placeholder="Comment as your organisation" required>
+    <button type="submit">Comment</button>
+    <p class="interest-post__comment-error" hidden></p>
+  </form>
+  {% endif %}
+  {% endif %}
+  <div class="interest-post__actions">
+    <a href="{{ item.profile_url }}"><i class="far fa-building" aria-hidden="true"></i><span>View profile</span></a>
+    {% if item.can_save %}
+    <a href="{{ item.profile_url }}#contact-funder"><i class="far fa-paper-plane" aria-hidden="true"></i><span>Reach out</span></a>
+    <button
+      type="button"
+      data-save-cbo-button
+      data-cbo-slug="{{ item.cbo_slug }}"
+      data-save-cbo-url="{{ item.save_url }}"
+      data-unsaved-label="Save"
+      data-saved-label="Saved"
+      data-saved="{{ 'true' if item.saved else 'false' }}"
+      aria-pressed="{{ 'true' if item.saved else 'false' }}"
+    ><i class="{{ 'fas' if item.saved else 'far' }} fa-bookmark" aria-hidden="true"></i><span>{{ 'Saved' if item.saved else 'Save' }}</span></button>
+    {% endif %}
+  </div>
+</article>
+{% endmacro %}

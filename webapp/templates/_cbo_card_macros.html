@@ -1,6 +1,6 @@
 {% from "_contact_macros.html" import render_funder_contact_modal %}
 
-{% macro render_cbo_card(item, ai_search_active) %}
+{% macro render_cbo_card(item, ai_search_active, search_query='') %}
   {% set cbo = item.cbo %}
   {% set p = item.profile %}
   {% set badge = item.badge or 'bronze' %}
@@ -11,13 +11,29 @@
   {% set total_rev = item.total_revenue %}
   {% set rev_growth = item.revenue_growth %}
   {% set ai_match = item.ai_match or {} %}
+  {% set funder_match = item.funder_match or {} %}
+  {% if search_query and ai_match.get('score') is not none %}
+    {% set profile_url = url_for('main.cbo_profile', slug=cbo.slug, q=search_query, ss=ai_match.get('score')) %}
+  {% elif search_query %}
+    {% set profile_url = url_for('main.cbo_profile', slug=cbo.slug, q=search_query) %}
+  {% else %}
+    {% set profile_url = url_for('main.cbo_profile', slug=cbo.slug) %}
+  {% endif %}
 
   <article class="cbo-card" data-saved-cbo-card data-cbo-slug="{{ cbo.slug }}">
-    <a href="{{ url_for('main.cbo_profile', slug=cbo.slug) }}" class="cbo-card__stretch-link" aria-label="Open {{ p.get('name', cbo.name) }} profile"></a>
+    <a href="{{ profile_url }}" class="cbo-card__stretch-link" aria-label="Open {{ p.get('name', cbo.name) }} profile"></a>
     <div class="cbo-card__content">
       <div class="card-header-bar">
         <div class="card-title-row">
-          <h2>{{ p.get('name', cbo.name) }}</h2>
+          <div class="card-title-row__name">
+            {% if p.get('profile_image') %}
+              <img class="cbo-card__logo" src="{{ url_for('main.cbo_profile_image', slug=cbo.slug) }}" alt="">
+            {% endif %}
+            <h2>{{ p.get('name', cbo.name) }}</h2>
+          </div>
+          {% if item.has_feed_update %}
+          <span class="card-feed-update">New update</span>
+          {% endif %}
           <div class="card-title-row__meta">
             <span class="data-badge data-badge--{{ badge }} data-badge--sm">
               {% if badge == 'gold' %}🥇{% elif badge == 'silver' %}🥈{% else %}🥉{% endif %}
@@ -66,7 +82,7 @@
       {% if ai_search_active and ai_match %}
       <div class="card-ai-match">
         <div class="card-ai-match__header">
-          <span><i class="fas fa-bullseye"></i> AI Match</span>
+          <span><i class="fas fa-bullseye"></i> Search match</span>
           <strong>{{ ai_match.get('score', 0) }}/100</strong>
         </div>
         {% if ai_match.get('reasons') %}
@@ -79,6 +95,29 @@
         {% if ai_match.get('qualitative_rationale') %}
           <p class="card-ai-match__note">{{ ai_match.get('qualitative_rationale') }}</p>
         {% endif %}
+      </div>
+      {% endif %}
+
+      {% if ai_search_active and funder_match.has_profile_interests %}
+      <div class="card-funder-match{% if not funder_match.is_match %} card-funder-match--limited{% endif %}">
+        <span><i class="fas fa-user-check"></i> Saved interests {{ funder_match.display_score|default(funder_match.score, true) }}/100</span>
+        <p>{{ funder_match.summary or ('Fits your saved funding interests.' if funder_match.is_match else 'Limited overlap with your saved funding interests.') }}</p>
+      </div>
+      {% elif funder_match.is_match %}
+      {% set raw_summary = funder_match.summary or ((funder_match.reasons or [''])[0]) %}
+      {% set tagline = (p.get('tagline') or '')|trim %}
+      {% if ' because ' in raw_summary %}
+        {% set fit_line = raw_summary.split(' because ')[0]|trim %}
+      {% elif tagline and ': ' in raw_summary and raw_summary.split(': ', 1)[1]|trim == tagline %}
+        {% set fit_line = raw_summary.split(': ', 1)[0]|trim %}
+      {% elif tagline and tagline in raw_summary %}
+        {% set fit_line = '' %}
+      {% else %}
+        {% set fit_line = raw_summary %}
+      {% endif %}
+      <div class="card-funder-match">
+        <span><i class="fas fa-user-check"></i> Fits your saved interests</span>
+        {% if fit_line %}<p>{{ fit_line }}</p>{% endif %}
       </div>
       {% endif %}
 
@@ -96,17 +135,25 @@
         {% endif %}
       </div>
 
+      {% set impact_chips = [] %}
+      {% for impact in (p.get('quantified_impact', [])) %}
+        {% if (impact.get('metric_value') or impact.get('metric_unit')) and impact_chips|length < 3 %}
+          {% set _ = impact_chips.append(impact) %}
+        {% endif %}
+      {% endfor %}
+      {% if impact_chips %}
       <div class="card-impacts">
-        {% for impact in (p.get('quantified_impact', []))[:3] %}
+        {% for impact in impact_chips %}
           <div class="impact-chip">
             <i class="fas fa-{{ _icon(impact.get('icon_hint','chart-up')) }}"></i>
-            <strong>{{ impact.metric_value }}</strong>
-            <span>{{ impact.metric_unit }}</span>
+            {% if impact.get('metric_value') %}<strong>{{ impact.metric_value }}</strong>{% endif %}
+            {% if impact.get('metric_unit') %}<span>{{ impact.metric_unit }}</span>{% endif %}
           </div>
         {% endfor %}
       </div>
+      {% endif %}
 
-      <div class="card-community-feedback">
+      <div class="card-community-feedback{% if not featured_feedback and not feedback.get('recent_quotes') %} card-community-feedback--quiet{% endif %}">
         <div class="card-community-feedback__header">
           <span class="card-community-feedback__title"><i class="fas fa-comments"></i> Community Feedback</span>
           {% if feedback.get('avg_rating') is not none %}
@@ -125,7 +172,7 @@
           {% set recent_quote = feedback.get('recent_quotes')[0] %}
           <p class="card-community-feedback__quote">"{{ recent_quote.get('quote') }}"</p>
         {% else %}
-          <p class="card-community-feedback__quote card-community-feedback__quote--empty">This CBO has not received community feedback yet.</p>
+          <p class="card-community-feedback__quote card-community-feedback__quote--empty">No community feedback yet.</p>
         {% endif %}
       </div>
 
@@ -139,7 +186,7 @@
         {% else %}
           <span class="sync-badge pending"><i class="fas fa-clock"></i> Not yet synced</span>
         {% endif %}
-        <span class="view-link">View Profile <i class="fas fa-arrow-right"></i></span>
+        <a href="{{ profile_url }}" class="view-link">View Profile <i class="fas fa-arrow-right"></i></a>
       </div>
     </div>
   </article>

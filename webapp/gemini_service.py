@@ -81,7 +81,7 @@ MARKETPLACE_RANKING_SCHEMA = """
 }
 """
 
-MARKETPLACE_RANKING_SYSTEM_PROMPT = f"""You rank marketplace CBO candidates against a user's natural-language search.
+MARKETPLACE_RANKING_SYSTEM_PROMPT = f"""You rank marketplace CBO candidates against the user's natural-language search only.
 
 You will receive:
 - the original user query
@@ -89,16 +89,17 @@ You will receive:
 - a shortlist of candidate summaries
 
 Your task:
-1. Prefer candidates that satisfy the hard filters.
-2. Use qualitative evidence from community feedback quotes, ratings, focus areas, and tagline text to separate similar candidates.
-3. Return ONLY valid JSON matching this schema:
+1. Score how well each candidate satisfies the typed query and its hard filters.
+2. Ignore any saved funder profile. A search for education should rank education organisations highly even when the funder usually supports agriculture, and the reverse is also true.
+3. Use qualitative evidence from community feedback quotes, ratings, focus areas, programs, and tagline text.
+4. Return ONLY valid JSON matching this schema:
 
 {MARKETPLACE_RANKING_SCHEMA}
 
 Rules:
 - Scores must be well-spread across the 0-100 range.
 - Do not invent evidence. Use only the candidate summary provided.
-- Qualitative rationale should mention reviews or mission alignment when relevant.
+- Qualitative rationale should mention a concrete profile detail, not a generic "matches your focus" line.
 """
 
 MARKETPLACE_CBO_FOLLOWUP_SCHEMA = """
@@ -401,7 +402,128 @@ def _fallback_marketplace_query_plan(query: str) -> dict:
     }
 
 
-def interpret_marketplace_query(query: str) -> dict:
+SMS_ONBOARDING_EXTRACT_FIELDS = (
+    'full_name',
+    'cbo_name',
+    'year_incorporated',
+    'position_role',
+    'cbo_office_address',
+    'cbo_program_locations',
+    'email_address',
+    'registered_bank_account',
+    'bank_name',
+    'anecdotal_story',
+    'milestones',
+)
+
+
+def extract_sms_onboarding_answers(
+    message: str,
+    expected_fields: list[str] | None = None,
+    already_collected: dict | None = None,
+    transcript: list | None = None,
+) -> dict:
+    """Parse a free-text SMS reply into intake field values."""
+    message = (message or '').strip()
+    if not message:
+        return {}
+
+    heuristic = _fallback_sms_onboarding_answers(message, expected_fields or [])
+    api_key = current_app.config.get('GEMINI_API_KEY')
+    if not api_key:
+        return heuristic
+
+    try:
+        client = genai.Client(api_key=api_key)
+        expected = expected_fields or list(SMS_ONBOARDING_EXTRACT_FIELDS)
+        response = client.models.generate_content(
+            model='gemini-3.8-flash',
+            contents=[
+                (
+                    'Extract CBO onboarding details from a text message. '
+                    'Return ONLY JSON with these keys, using empty strings when unknown: '
+                    + ', '.join(SMS_ONBOARDING_EXTRACT_FIELDS)
+                    + '. Do not invent facts. Keep names, places, and emails as the sender wrote them. '
+                    'If the message is only a short SMS keyword such as KIWA, leave every field empty. '
+                    'Replace placeholder keyword values with real names from this message. '
+                    'registered_bank_account should be Yes, No, or empty. '
+                    'year_incorporated should be a 4-digit year when present.'
+                ),
+                (
+                    'Already collected JSON:\n'
+                    f'{json.dumps(already_collected or {}, indent=2)}\n\n'
+                    f'Fields especially needed now: {", ".join(expected)}\n\n'
+                    f'Latest SMS:\n{message}'
+                ),
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type='application/json',
+            ),
+        )
+        parsed = _parse_json_response(response.text)
+        if not isinstance(parsed, dict):
+            raise ValueError('SMS onboarding extraction was not a JSON object')
+        merged = dict(heuristic)
+        for field in SMS_ONBOARDING_EXTRACT_FIELDS:
+            value = str(parsed.get(field) or '').strip()
+            if value:
+                merged[field] = value
+        return merged
+    except Exception:
+        current_app.logger.exception('Gemini SMS onboarding extraction failed')
+        return heuristic
+
+
+def _fallback_sms_onboarding_answers(message: str, expected_fields: list[str]) -> dict:
+    answers = {}
+    email_match = re.search(r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}', message, re.I)
+    if email_match:
+        answers['email_address'] = email_match.group(0).lower()
+    year_match = re.search(r'\b(?:19|20)\d{2}\b', message)
+    if year_match:
+        answers['year_incorporated'] = year_match.group(0)
+
+    lowered = message.lower()
+    if re.search(r'\b(yes|yep|yeah)\b', lowered) and any(word in lowered for word in ['bank', 'account']):
+        answers['registered_bank_account'] = 'Yes'
+    elif re.search(r'\bno\b', lowered) and any(word in lowered for word in ['bank', 'account']):
+        answers['registered_bank_account'] = 'No'
+
+    chunks = _split_sms_answer_chunks(message)
+    unused_fields = [field for field in (expected_fields or SMS_ONBOARDING_EXTRACT_FIELDS) if field not in answers]
+    for field, chunk in zip(unused_fields, chunks):
+        cleaned = str(chunk or '').strip()
+        if not cleaned:
+            continue
+        if field == 'year_incorporated':
+            year_in_chunk = re.search(r'\b(?:19|20)\d{2}\b', cleaned)
+            if year_in_chunk:
+                answers[field] = year_in_chunk.group(0)
+            continue
+        if field != 'email_address':
+            answers[field] = cleaned
+
+    if 'full_name' not in answers and 'full_name' in (expected_fields or []) and chunks:
+        first = chunks[0]
+        if len(first.split()) <= 6 and '@' not in first and not re.search(r'\b(?:19|20)\d{2}\b', first):
+            answers['full_name'] = first
+    return answers
+
+
+def _split_sms_answer_chunks(message: str) -> list[str]:
+    numbered = re.split(r'(?:^|\s)(?:\d+[\).\:-]\s+)', message.strip())
+    numbered = [part.strip(" \n;-") for part in numbered if part.strip(" \n;-")]
+    if len(numbered) >= 2:
+        return numbered
+    lines = [line.strip(" \n;-") for line in re.split(r'[\n;]+', message) if line.strip(" \n;-")]
+    if len(lines) >= 2:
+        return lines
+    parts = [part.strip() for part in re.split(r'\s+and\s+|\s*,\s*', message, flags=re.I) if part.strip()]
+    return parts if len(parts) >= 2 else ([message.strip()] if message.strip() else [])
+
+
+def interpret_marketplace_query(query: str, funder_context: dict | None = None) -> dict:
     query = (query or '').strip()
     if not query:
         return _fallback_marketplace_query_plan('')
@@ -410,10 +532,14 @@ def interpret_marketplace_query(query: str) -> dict:
     if not api_key:
         return _fallback_marketplace_query_plan(query)
 
+    # Saved interests are not part of query interpretation. Search filters come
+    # from the typed request only.
+    del funder_context
+
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model='gemini-3.5-flash',
+            model='gemini-3.8-flash',
             contents=[
                 MARKETPLACE_QUERY_SYSTEM_PROMPT,
                 f'User query: {query}',
@@ -537,10 +663,32 @@ def _local_marketplace_ranking(query: str, candidates: list[dict], search_plan: 
     }
 
 
-def rank_marketplace_candidates(query: str, candidates: list[dict], search_plan: dict | None = None) -> dict:
+def explain_search_match(query: str, candidate: dict) -> dict:
+    """Score one organisation against the typed search, without saved interests."""
+    query = re.sub(r'\s+', ' ', str(query or '')).strip()
+    if not query:
+        return {}
+    plan = _fallback_marketplace_query_plan(query)
+    ranking = _local_marketplace_ranking(query, [candidate or {}], plan)
+    match = (ranking.get('matches') or [{}])[0]
+    reasons = [str(reason).strip() for reason in (match.get('reasons') or []) if str(reason).strip()]
+    if not reasons:
+        reasons = [f'Matched your search for “{query}”.']
+    return {
+        'query': query,
+        'score': int(match.get('score') or 0),
+        'reasons': reasons[:3],
+        'summary': ranking.get('summary') or '',
+    }
+
+
+def rank_marketplace_candidates(query: str, candidates: list[dict], search_plan: dict | None = None, funder_context: dict | None = None) -> dict:
     if not candidates:
         return {'summary': '', 'matches': []}
 
+    # Saved funder interests are a separate score. They must not pull a search
+    # match down when the query and the profile point at different work.
+    del funder_context
     local_ranking = _local_marketplace_ranking(query, candidates, search_plan)
     local_lookup = {match['slug']: match for match in local_ranking['matches']}
     api_key = current_app.config['GEMINI_API_KEY']
@@ -559,7 +707,7 @@ def rank_marketplace_candidates(query: str, candidates: list[dict], search_plan:
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model='gemini-3.5-flash',
+            model='gemini-3.8-flash',
             contents=[
                 MARKETPLACE_RANKING_SYSTEM_PROMPT,
                 json.dumps({
@@ -774,7 +922,7 @@ def answer_marketplace_cbo_question(question: str, cbo_context: dict, marketplac
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model='gemini-3.5-flash',
+            model='gemini-3.8-flash',
             contents=[
                 MARKETPLACE_CBO_FOLLOWUP_SYSTEM_PROMPT,
                 json.dumps({
@@ -1190,7 +1338,7 @@ DATA:
 Analyse this data and return the structured CBO profile JSON."""
 
         response = client.models.generate_content(
-            model="gemini-3.5-flash",
+            model="gemini-3.8-flash",
             contents=[
                 SYSTEM_PROMPT,
                 user_prompt,
