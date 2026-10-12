@@ -4,7 +4,7 @@ import os
 
 from flask import Flask, flash, redirect, request, url_for
 from flask_login import LoginManager
-from sqlalchemy import inspect, text
+from sqlalchemy import event, inspect, text
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import Config
@@ -58,6 +58,10 @@ def create_app() -> Flask:
 
     db.init_app(app)
     login_manager.init_app(app)
+    _configure_sqlite(app)
+
+    from .funder_alert_service import register_funder_alert_listeners
+    register_funder_alert_listeners()
 
     from .auth import auth_bp
     from .routes import main_bp
@@ -69,7 +73,34 @@ def create_app() -> Flask:
         db.create_all()
         _ensure_runtime_schema()
 
+    from .sms_onboarding import start_local_sms_inbound_bridge
+    start_local_sms_inbound_bridge(app)
+
     return app
+
+
+def _configure_sqlite(app) -> None:
+    if not str(app.config.get('SQLALCHEMY_DATABASE_URI') or '').startswith('sqlite'):
+        return
+    if getattr(app, '_sqlite_pragmas_configured', False):
+        return
+    app._sqlite_pragmas_configured = True
+
+    def _sqlite_on_connect(dbapi_connection, connection_record):
+        module = getattr(type(dbapi_connection), '__module__', '')
+        if 'sqlite' not in module:
+            return
+        cursor = dbapi_connection.cursor()
+        cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.execute('PRAGMA busy_timeout=30000')
+        cursor.close()
+
+    with app.app_context():
+        event.listen(db.engine, 'connect', _sqlite_on_connect)
+        with db.engine.connect() as connection:
+            connection.execute(text('PRAGMA journal_mode=WAL'))
+            connection.execute(text('PRAGMA busy_timeout=30000'))
+            connection.commit()
 
 
 def _ensure_runtime_schema() -> None:
@@ -83,6 +114,9 @@ def _ensure_runtime_schema() -> None:
         'cbos': {
             'bookkeeping_template_json': "ALTER TABLE cbos ADD COLUMN bookkeeping_template_json TEXT DEFAULT '{}'",
             'bookkeeping_workspace_entries_json': "ALTER TABLE cbos ADD COLUMN bookkeeping_workspace_entries_json TEXT DEFAULT '[]'",
+            'web_research_json': "ALTER TABLE cbos ADD COLUMN web_research_json TEXT DEFAULT '{}'",
+            'web_research_verified_at': 'ALTER TABLE cbos ADD COLUMN web_research_verified_at DATETIME',
+            'web_research_refreshed_at': 'ALTER TABLE cbos ADD COLUMN web_research_refreshed_at DATETIME',
         },
         'bookkeeping_documents': {
             'client_submission_id': "ALTER TABLE bookkeeping_documents ADD COLUMN client_submission_id VARCHAR(64) DEFAULT ''",
@@ -101,6 +135,13 @@ def _ensure_runtime_schema() -> None:
         },
         'google_form_uploads': {
             'storage_backend': "ALTER TABLE google_form_uploads ADD COLUMN storage_backend VARCHAR(20) DEFAULT 'local'",
+        },
+        'sms_onboarding_sessions': {
+            'web_research_json': "ALTER TABLE sms_onboarding_sessions ADD COLUMN web_research_json TEXT DEFAULT '{}'",
+        },
+        'funder_profiles': {
+            'interest_brief_json': "ALTER TABLE funder_profiles ADD COLUMN interest_brief_json TEXT DEFAULT '{}'",
+            'contact_email': "ALTER TABLE funder_profiles ADD COLUMN contact_email VARCHAR(255) DEFAULT ''",
         },
     }
 

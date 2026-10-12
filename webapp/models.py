@@ -152,6 +152,11 @@ class CBO(db.Model):
     data_quality_badge   = db.Column(db.String(10), default='')  # "bronze"|"silver"|"gold"
     social_impact_score  = db.Column(db.Integer, default=0)      # 0–100
 
+    # ── Public-web research used during onboarding and periodic refresh ──
+    web_research_json = db.Column(db.Text, default='{}')
+    web_research_verified_at = db.Column(db.DateTime, nullable=True)
+    web_research_refreshed_at = db.Column(db.DateTime, nullable=True)
+
     # Timestamps
     last_synced = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -429,3 +434,147 @@ class CommunityFeedback(db.Model):
         backref=db.backref('feedback_entries', lazy=True),
     )
     cbo = db.relationship('CBO', backref=db.backref('community_feedback_entries', lazy=True))
+
+
+class SmsOnboardingSession(db.Model):
+    """A developer-initiated SMS conversation that onboards a CBO leader."""
+    __tablename__ = 'sms_onboarding_sessions'
+
+    STATUS_IN_PROGRESS = 'in_progress'
+    STATUS_AWAITING_CLAIM = 'awaiting_claim'
+    STATUS_COMPLETED = 'completed'
+    STATUS_CANCELLED = 'cancelled'
+
+    id = db.Column(db.Integer, primary_key=True)
+    phone_number = db.Column(db.String(32), nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, default=STATUS_IN_PROGRESS)
+    conversation_state = db.Column(db.String(32), nullable=False, default='awaiting_basics')
+    answers_json = db.Column(db.Text, default='{}')
+    transcript_json = db.Column(db.Text, default='[]')
+    initiated_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    source_cbo_id = db.Column(db.Integer, db.ForeignKey('cbos.id'), nullable=True)
+    provisioned_cbo_id = db.Column(db.Integer, db.ForeignKey('cbos.id'), nullable=True)
+    provisioned_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    google_form_response_id = db.Column(db.Integer, db.ForeignKey('google_form_responses.id'), nullable=True)
+    claim_token = db.Column(db.String(255), default='')
+    last_outbound_sid = db.Column(db.String(64), default='')
+    last_error = db.Column(db.Text, default='')
+    web_research_json = db.Column(db.Text, default='{}')
+    firestore_synced_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    initiated_by = db.relationship('User', foreign_keys=[initiated_by_user_id])
+    source_cbo = db.relationship('CBO', foreign_keys=[source_cbo_id])
+    provisioned_cbo = db.relationship('CBO', foreign_keys=[provisioned_cbo_id])
+    provisioned_user = db.relationship('User', foreign_keys=[provisioned_user_id])
+    google_form_response = db.relationship('GoogleFormResponse', foreign_keys=[google_form_response_id])
+
+
+class FunderProfile(db.Model):
+    """Funding interests and org details used to rank and tailor CBO profiles."""
+    __tablename__ = 'funder_profiles'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True)
+    organization_name = db.Column(db.String(255), default='')
+    contact_email = db.Column(db.String(255), default='')
+    website = db.Column(db.String(500), default='')
+    country_region = db.Column(db.String(255), default='')
+    about_text = db.Column(db.Text, default='')
+    interest_areas_json = db.Column(db.Text, default='[]')
+    geographic_focus_json = db.Column(db.Text, default='[]')
+    grant_size_min = db.Column(db.Float, nullable=True)
+    grant_size_max = db.Column(db.Float, nullable=True)
+    grant_currency = db.Column(db.String(12), default='KES')
+    preference_memory_json = db.Column(db.Text, default='{}')
+    interest_brief_json = db.Column(db.Text, default='{}')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('funder_profile', uselist=False), foreign_keys=[user_id])
+
+
+class FunderPreferenceEvent(db.Model):
+    """Lightweight memory of how a funder uses the marketplace and CBO profiles."""
+    __tablename__ = 'funder_preference_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    cbo_id = db.Column(db.Integer, db.ForeignKey('cbos.id'), nullable=True, index=True)
+    event_type = db.Column(db.String(40), nullable=False, default='view_profile')
+    payload_json = db.Column(db.Text, default='{}')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    user = db.relationship('User', backref=db.backref('preference_events', lazy=True), foreign_keys=[user_id])
+    cbo = db.relationship('CBO', foreign_keys=[cbo_id])
+
+
+class CBOActivity(db.Model):
+    """A profile highlight, story, or new-organisation event funders can follow."""
+    __tablename__ = 'cbo_activities'
+    __table_args__ = (
+        db.UniqueConstraint('cbo_id', 'source_key', name='uq_cbo_activity_source'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    cbo_id = db.Column(db.Integer, db.ForeignKey('cbos.id'), nullable=False, index=True)
+    kind = db.Column(db.String(32), nullable=False, default='highlight')
+    title = db.Column(db.String(255), default='')
+    body = db.Column(db.Text, default='')
+    source_key = db.Column(db.String(220), nullable=False, default='')
+    alert_policy = db.Column(db.String(20), nullable=False, default='historical')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    cbo = db.relationship('CBO', backref=db.backref('activities', lazy=True), foreign_keys=[cbo_id])
+
+
+class FunderInterestAlert(db.Model):
+    """One email attempt for a funder about a CBO activity that matched their interests."""
+    __tablename__ = 'funder_interest_alerts'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'activity_id', name='uq_funder_interest_alert'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    cbo_id = db.Column(db.Integer, db.ForeignKey('cbos.id'), nullable=False, index=True)
+    activity_id = db.Column(db.Integer, db.ForeignKey('cbo_activities.id'), nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, default='pending')
+    error = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    sent_at = db.Column(db.DateTime, nullable=True)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+    cbo = db.relationship('CBO', foreign_keys=[cbo_id])
+    activity = db.relationship('CBOActivity', foreign_keys=[activity_id])
+
+
+class CBOActivityLike(db.Model):
+    """A CBO user's reaction to another organisation's feed post."""
+    __tablename__ = 'cbo_activity_likes'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'activity_id', name='uq_cbo_activity_like'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    activity_id = db.Column(db.Integer, db.ForeignKey('cbo_activities.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+    activity = db.relationship('CBOActivity', foreign_keys=[activity_id])
+
+
+class CBOActivityComment(db.Model):
+    """A short note from one CBO on another organisation's feed post."""
+    __tablename__ = 'cbo_activity_comments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    activity_id = db.Column(db.Integer, db.ForeignKey('cbo_activities.id'), nullable=False, index=True)
+    body = db.Column(db.Text, nullable=False, default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+    activity = db.relationship('CBOActivity', foreign_keys=[activity_id])

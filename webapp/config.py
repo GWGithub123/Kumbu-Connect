@@ -40,7 +40,12 @@ class Config:
     SQLALCHEMY_ENGINE_OPTIONS = (
         {'pool_pre_ping': True}
         if SQLALCHEMY_DATABASE_URI.startswith('postgresql')
-        else {}
+        else {
+            'connect_args': {
+                'timeout': 30,
+                'check_same_thread': False,
+            },
+        }
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', str(20 * 1024 * 1024)))
@@ -83,8 +88,8 @@ class Config:
     ).strip()
     BOOKKEEPING_VISION_MODEL = os.environ.get(
         'BOOKKEEPING_VISION_MODEL',
-        'gemini-3.5-flash',
-    ).strip() or 'gemini-3.5-flash'
+        'gemini-3.8-flash',
+    ).strip() or 'gemini-3.8-flash'
 
     # Narrative report parsing into profile fields
     NARRATIVE_PROFILE_PARSING_ENABLED = os.environ.get(
@@ -93,8 +98,8 @@ class Config:
     ).strip().lower() == 'true'
     NARRATIVE_DOCUMENT_MODEL = os.environ.get(
         'NARRATIVE_DOCUMENT_MODEL',
-        'gemini-3.5-flash',
-    ).strip() or 'gemini-3.5-flash'
+        'gemini-3.8-flash',
+    ).strip() or 'gemini-3.8-flash'
     NARRATIVE_DOCUMENT_TIMEOUT = int(os.environ.get('NARRATIVE_DOCUMENT_TIMEOUT', '180') or 180)
     NARRATIVE_DOCUMENT_MAX_OUTPUT_TOKENS = int(
         os.environ.get('NARRATIVE_DOCUMENT_MAX_OUTPUT_TOKENS', '32000') or 32000
@@ -204,6 +209,9 @@ class Config:
         'PUBLIC_BASE_URL',
         os.environ.get('PUBLIC_APP_URL', ''),
     ).strip()
+    FUNDER_INTEREST_ALERTS = os.environ.get('FUNDER_INTEREST_ALERTS', 'true').strip().lower() not in {
+        '0', 'false', 'no', 'off',
+    }
     PUBLIC_TUNNEL_URL = os.environ.get(
         'PUBLIC_TUNNEL_URL',
         os.environ.get('NGROK_PUBLIC_URL', ''),
@@ -302,6 +310,9 @@ class Config:
     TWILIO_VALIDATE_SIGNATURE = os.environ.get('TWILIO_VALIDATE_SIGNATURE', 'false').strip().lower() == 'true'
     COMMUNITY_FEEDBACK_CHECKIN_MONTHS = int(
         os.environ.get('COMMUNITY_FEEDBACK_CHECKIN_MONTHS', '6').strip() or 6
+    )
+    WEB_RESEARCH_REFRESH_DAYS = int(
+        os.environ.get('WEB_RESEARCH_REFRESH_DAYS', '45').strip() or 45
     )
 
     # Firebase / Firestore

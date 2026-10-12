@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}{{ current_user.nav_display_name }} — Funder profile — Kumbu Connect{% endblock %}
+
+{% block content %}
+{% set profile_photo = session.get('google_profile_picture_url') if session.get('auth_provider') == 'google' else '' %}
+<div class="container funder-profile-page">
+  <section class="funder-profile-hero">
+    <div class="funder-profile-hero__identity">
+      {% if profile_photo %}
+        <img src="{{ profile_photo }}" alt="" class="funder-profile-hero__avatar" referrerpolicy="no-referrer">
+      {% else %}
+        <span class="funder-profile-hero__avatar funder-profile-hero__avatar--fallback" aria-hidden="true"><i class="fas fa-user-circle"></i></span>
+      {% endif %}
+      <div>
+        <p class="funder-profile-hero__eyebrow">Funder profile</p>
+        <h1>{{ current_user.nav_display_name }}</h1>
+        <div class="funder-profile-hero__meta">
+          {% if profile.organization_name and profile.organization_name != current_user.nav_display_name %}
+            <span class="funder-profile-hero__org">{{ profile.organization_name }}</span>
+          {% endif %}
+          <span class="badge badge-{{ current_user.role_badge_class }}">{{ current_user.role_badge_label }}</span>
+        </div>
+      </div>
+    </div>
+    <p class="funder-profile-hero__lede">These details drive marketplace ranking and CBO match notes. A CBO counts as a fit only when its work overlaps what you save here.</p>
+  </section>
+
+  <section class="admin-panel funder-profile-panel">
+    <form method="POST" class="funder-profile-form">
+      <section class="funder-section">
+        <div class="funder-section__head">
+          <h2>Organisation</h2>
+          <p>Who you represent, and where you prefer to fund.</p>
+        </div>
+        <div class="funder-profile-grid">
+          <div class="form-group">
+            <label for="organization_name">Organisation name</label>
+            <input type="text" id="organization_name" name="organization_name" value="{{ profile.organization_name }}" placeholder="Foundation, donor, or fund" autocomplete="organization">
+          </div>
+          <div class="form-group">
+            <label for="website">Website</label>
+            <input type="url" id="website" name="website" value="{{ profile.website }}" placeholder="https://" autocomplete="url">
+          </div>
+          <div class="form-group">
+            <label for="country_region">Country / region</label>
+            <input type="text" id="country_region" name="country_region" value="{{ profile.country_region }}" placeholder="Kenya, East Africa" autocomplete="country-name">
+          </div>
+          <div class="form-group">
+            <label for="geographic_focus">Geographic focus</label>
+            <input type="text" id="geographic_focus" name="geographic_focus" value="{{ profile.geographic_focus|join(', ') }}" placeholder="Kisumu, Busia, Western Kenya">
+            <p class="form-help">Comma-separated counties or regions.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="funder-section">
+        <div class="funder-section__head">
+          <h2>Interest alerts</h2>
+          <p>We email this address when a new organisation joins, or an existing one adds an update, that matches the interests you save here.</p>
+        </div>
+        <div class="form-group">
+          <label for="contact_email">Preferred contact email</label>
+          <input type="email" id="contact_email" name="contact_email" value="{{ profile.contact_email }}" placeholder="you@organisation.org" autocomplete="email">
+          <p class="form-help">Leave this blank to use your login email, {{ current_user.email }}.</p>
+        </div>
+      </section>
+
+      <fieldset class="funder-section">
+        <legend class="funder-section__head">
+          <span class="funder-section__title">Funding areas</span>
+          <span class="funder-section__hint">Select only the sectors you actually fund. Education or youth organisations are not marked as matches unless those areas are selected.</span>
+        </legend>
+        <div class="funder-interest-grid">
+          {% for value, label in interest_choices %}
+            <label class="funder-interest-chip">
+              <input type="checkbox" name="interest_areas" value="{{ value }}" {% if value in profile.interest_areas %}checked{% endif %}>
+              <span class="funder-interest-chip__mark" aria-hidden="true"></span>
+              <span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <section class="funder-section">
+        <div class="form-group">
+          <label for="interest_themes">Describe your interests</label>
+          <textarea id="interest_themes" name="interest_themes" rows="4" placeholder="Example: last-mile smallholder irrigation, post-harvest storage, farmer cooperatives in Western Kenya">{{ profile.interest_brief.themes }}</textarea>
+          <p class="form-help">Used in marketplace search and match notes, alongside the areas above.</p>
+        </div>
+      </section>
+
+      <div class="funder-profile-split">
+        <fieldset class="funder-section">
+          <legend class="funder-section__head">
+            <span class="funder-section__title">Priority populations</span>
+            <span class="funder-section__hint">Groups you most want a partner to serve.</span>
+          </legend>
+          <div class="funder-interest-grid">
+            {% for value, label in population_choices %}
+              <label class="funder-interest-chip">
+                <input type="checkbox" name="priority_populations" value="{{ value }}" {% if value in profile.interest_brief.populations %}checked{% endif %}>
+                <span class="funder-interest-chip__mark" aria-hidden="true"></span>
+                <span>{{ label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+
+        <fieldset class="funder-section">
+          <legend class="funder-section__head">
+            <span class="funder-section__title">Outcomes you care about</span>
+            <span class="funder-section__hint">Results that should rise in ranking and match notes.</span>
+          </legend>
+          <div class="funder-interest-grid">
+            {% for value, label in outcome_choices %}
+              <label class="funder-interest-chip">
+                <input type="checkbox" name="priority_outcomes" value="{{ value }}" {% if value in profile.interest_brief.outcomes %}checked{% endif %}>
+                <span class="funder-interest-chip__mark" aria-hidden="true"></span>
+                <span>{{ label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+      </div>
+
+      <section class="funder-section">
+        <div class="funder-section__head">
+          <h2>Typical grant size</h2>
+          <p>An approximate range is enough. Leave blank if you would rather not share it.</p>
+        </div>
+        <div class="funder-profile-grid funder-profile-grid--grant">
+          <div class="form-group">
+            <label for="grant_size_min">Minimum</label>
+            <input type="number" id="grant_size_min" name="grant_size_min" min="0" step="1000" value="{{ profile.grant_size_min if profile.grant_size_min is not none else '' }}" inputmode="numeric">
+          </div>
+          <div class="form-group">
+            <label for="grant_size_max">Maximum</label>
+            <input type="number" id="grant_size_max" name="grant_size_max" min="0" step="1000" value="{{ profile.grant_size_max if profile.grant_size_max is not none else '' }}" inputmode="numeric">
+          </div>
+          <div class="form-group">
+            <label for="grant_currency">Currency</label>
+            <input type="text" id="grant_currency" name="grant_currency" value="{{ profile.grant_currency or 'KES' }}" maxlength="12">
+          </div>
+        </div>
+      </section>
+
+      <section class="funder-section">
+        <div class="funder-section__head">
+          <h2>What you look for</h2>
+          <p>Partner qualities and evidence that should stand out on a CBO profile.</p>
+        </div>
+        <div class="funder-profile-grid">
+          <div class="form-group">
+            <label for="about_text">Partner qualities</label>
+            <textarea id="about_text" name="about_text" rows="4" placeholder="Stage of organisation, local leadership, bookkeeping quality, or community feedback.">{{ profile.about_text }}</textarea>
+          </div>
+          <div class="form-group">
+            <label for="evidence_needed">Evidence you need to see</label>
+            <textarea id="evidence_needed" name="evidence_needed" rows="4" placeholder="Example: farmer reach, acres under production, seasonal income, or community ratings.">{{ profile.interest_brief.evidence_needed }}</textarea>
+          </div>
+        </div>
+      </section>
+
+      {% if profile.preference_memory and profile.preference_memory.learned_interests %}
+        <p class="funder-profile-memory">Browsing can slightly affect ranking. Match badges use only the interests saved on this page. Recently viewed themes: {{ profile.preference_memory.learned_interests|join(', ') }}.</p>
+      {% endif %}
+
+      <div class="funder-profile-actions">
+        <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save profile</button>
+        <a href="{{ url_for('main.marketplace') }}" class="btn btn-outline">Back to marketplace</a>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}
