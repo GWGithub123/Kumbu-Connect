@@ -151,7 +151,7 @@ def _next_url_allowed_for_user(user: User, raw_url: str | None) -> bool:
         if user.has_role('funder'):
             return True
         cbo = CBO.query.filter_by(slug=cbo_profile_match.group(1)).first()
-        return cbo is not None and user.has_role('cbo') and user.cbo_id == cbo.id
+        return cbo is not None
 
     google_upload_match = re.fullmatch(r'/google-form-upload/(\d+)/file', path)
     if google_upload_match:
@@ -1222,10 +1222,56 @@ def claim_account():
     )
 
 
+@auth_bp.route('/sms-onboarding/setup/<token>', methods=['GET', 'POST'])
+def sms_onboarding_setup(token):
+    from .sms_onboarding import complete_sms_onboarding_claim, load_claim_session
+
+    try:
+        onboarding_session, user = load_claim_session(token)
+    except RuntimeError as exc:
+        flash(str(exc), 'danger')
+        return redirect(url_for('auth.claim_account'))
+
+    already_active = user.account_status == 'active' and not user.needs_password_setup
+    if current_user.is_authenticated and current_user.id == user.id and already_active:
+        return redirect(_default_redirect_target(current_user))
+    if already_active:
+        flash('That account is already active. Log in instead.', 'info')
+        return redirect(_login_redirect_for_claim(user.email))
+
+    if request.method == 'POST':
+        password = request.form.get('password') or ''
+        password_confirm = request.form.get('password_confirm') or ''
+        if len(password) < 6:
+            flash('Choose a password with at least 6 characters.', 'danger')
+        elif password != password_confirm:
+            flash('The password confirmation does not match.', 'danger')
+        else:
+            complete_sms_onboarding_claim(onboarding_session, user, password)
+            session.pop('developer_access', None)
+            _set_active_role('cbo')
+            _set_auth_provider(None)
+            login_user(user, remember=True)
+            flash('Your CBO account is ready. This is your pre-populated profile.', 'success')
+            if user.cbo:
+                return redirect(url_for('main.cbo_dashboard'))
+            return redirect(_login_redirect_target(user))
+
+    return render_template(
+        'auth/sms_onboarding_setup.html',
+        user=user,
+        cbo=user.cbo,
+        token=token,
+    )
+
+
 @auth_bp.route('/logout')
 @login_required
 def logout():
+    next_url = (request.args.get('next') or '').strip()
     _clear_auth_session_flags()
     session.pop('login_next', None)
     logout_user()
+    if next_url.startswith('/') and not next_url.startswith('//'):
+        return redirect(url_for('auth.login', next=next_url))
     return redirect(url_for('main.marketplace'))

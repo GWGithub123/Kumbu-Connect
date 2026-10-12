@@ -26,6 +26,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/forms.body',
     'https://www.googleapis.com/auth/forms.responses.readonly',
     'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/gmail.send',
 ]
 AUTH_URI = 'https://accounts.google.com/o/oauth2/v2/auth'
 TOKEN_URI = 'https://oauth2.googleapis.com/token'
@@ -197,6 +198,15 @@ def main() -> int:
     print('Granted scopes:')
     for scope in granted_scopes:
         print(f'  - {scope}')
+
+    with app.app_context():
+        from webapp.funder_alert_service import resend_failed_interest_alerts
+        try:
+            resent = resend_failed_interest_alerts()
+        except Exception as exc:
+            print(f'Token saved, but the queued organisation emails were not sent: {exc}')
+            return 1
+        print(f'Sent {resent} organisation email(s) that had been waiting.')
 
     return 0
 

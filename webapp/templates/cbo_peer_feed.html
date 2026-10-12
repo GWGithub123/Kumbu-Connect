@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% from "_feed_post.html" import render_feed_post %}
+{% block title %}Peer feed — Kumbu Connect{% endblock %}
+
+{% block content %}
+<div class="container container--browse peer-feed-page">
+  <section class="marketplace-map-card marketplace-map-card--split peer-feed-board">
+    <div class="peer-feed-map">
+      <div class="marketplace-map-toolbar peer-feed-map__toolbar">
+        <span class="marketplace-map-pill">{{ map_pins | length }} pinned</span>
+        <div class="marketplace-map-card__controls" aria-label="Map display controls">
+          <button type="button" class="map-view-toggle is-active" data-peer-map-view="roadmap">Map</button>
+          <button type="button" class="map-view-toggle" data-peer-map-view="satellite">Satellite</button>
+        </div>
+      </div>
+      <div id="peerFeedMap" class="peer-feed-map__canvas"></div>
+    </div>
+
+    <section class="interest-reel interest-reel--dock" aria-label="Peer feed">
+      <div class="interest-reel__header">
+        <h2>Peer feed</h2>
+      </div>
+      <form class="peer-feed-search" method="get" action="{{ url_for('main.cbo_peer_feed') }}">
+        <input type="search" name="q" value="{{ q or '' }}" placeholder="Search a name, a region, or the kind of work…" aria-label="Search organisations">
+        <button type="submit" class="btn btn-primary">Search</button>
+        {% if q %}
+        <a class="btn btn-outline" href="{{ url_for('main.cbo_peer_feed') }}">Clear</a>
+        {% endif %}
+      </form>
+
+      <div class="interest-reel__track" id="peerFeedTrack">
+        {% if peer_search %}
+          <p class="peer-feed-search__note">
+            {% if peer_search.organisations %}
+              {{ peer_search.organisations | length }} organisation{{ 's' if peer_search.organisations | length != 1 else '' }} for “{{ q }}”.
+            {% else %}
+              No organisations matched “{{ q }}”.
+            {% endif %}
+          </p>
+          {% if peer_search.organisations %}
+          <div class="peer-org-list">
+            {% for item in peer_search.organisations %}
+            <a class="peer-org" href="{{ item.profile_url }}">
+              <strong>{{ item.name }}</strong>
+              {% if item.location %}<span>{{ item.location }}</span>{% endif %}
+              {% if item.focus %}<span>{{ item.focus }}</span>{% endif %}
+              {% if item.reason %}<em>{{ item.reason }}</em>{% endif %}
+            </a>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% if peer_search.posts %}
+          <h3 class="peer-feed-lane__title">Updates from these organisations</h3>
+          {% for item in peer_search.posts %}
+          {{ render_feed_post(item, 'search-' ~ loop.index) }}
+          {% endfor %}
+          {% elif peer_search.organisations %}
+          <p class="interest-reel__empty">These organisations are on the map. They do not have a public update yet.</p>
+          {% endif %}
+        {% else %}
+        {% macro render_lane(title, items, empty_text, index_prefix) %}
+        <section class="peer-feed-lane">
+          <h3 class="peer-feed-lane__title">{{ title }}</h3>
+          {% if items %}
+          <div class="peer-feed-lane__list">
+            {% for item in items %}
+            {{ render_feed_post(item, index_prefix ~ '-' ~ loop.index) }}
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="interest-reel__empty">{{ empty_text }}</p>
+          {% endif %}
+        </section>
+        {% endmacro %}
+        {{ render_lane('Popular with other organisations', peer_feed.popular, 'Responses from other organisations will collect here.', 'popular') }}
+        {{ render_lane('In your region', peer_feed.regional, 'No recent updates yet from organisations in your region.', 'region') }}
+        {{ render_lane('Similar work elsewhere', peer_feed.similar, 'No recent updates yet from organisations doing similar work in other regions.', 'similar') }}
+        {% endif %}
+      </div>
+    </section>
+  </section>
+</div>
+<script id="peer-feed-map-data" type="application/json">{{ {'pins': map_pins, 'apiKey': google_maps_api_key, 'fitPins': fit_map_to_pins} | tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const dataNode = document.getElementById('peer-feed-map-data');
+  const mapData = dataNode ? JSON.parse(dataNode.textContent || '{}') : {};
+  const pins = Array.isArray(mapData.pins) ? mapData.pins : [];
+  const apiKey = mapData.apiKey || '';
+  const fitPins = Boolean(mapData.fitPins);
+  const canvas = document.getElementById('peerFeedMap');
+  if (!canvas || !apiKey) {
+    return;
+  }
+  const home = {
+    center: { lat: 0.23, lng: 37.9 },
+    bounds: { south: -4.72, west: 33.91, north: 5.06, east: 41.91 },
+  };
+  let map = null;
+  let markers = [];
+  let viewMode = 'roadmap';
+  let focusedMarker = null;
+  let focusedPost = null;
+  let homeZoom = null;
+
+  function kenyaBounds() {
+    return new google.maps.LatLngBounds(
+      { lat: home.bounds.south, lng: home.bounds.west },
+      { lat: home.bounds.north, lng: home.bounds.east }
+    );
+  }
+
+  function placeMarkers() {
+    markers.forEach(item => item.marker.setMap(null));
+    markers = [];
+    pins.forEach(pin => {
+      const lat = Number(pin.latitude);
+      const lng = Number(pin.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return;
+      }
+      const marker = new google.maps.Marker({
+        map,
+        position: { lat, lng },
+        title: pin.name || '',
+      });
+      marker.addListener('click', () => {
+        map.panTo({ lat, lng });
+        const post = document.querySelector(`#peerFeedTrack .interest-post[data-cbo-slug="${CSS.escape(pin.slug || '')}"]`);
+        if (post) {
+          post.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      });
+      markers.push({ pin, marker });
+    });
+  }
+
+  function frameMap() {
+    if (!map) {
+      return;
+    }
+    google.maps.event.trigger(map, 'resize');
+    if (fitPins && markers.length) {
+      const bounds = new google.maps.LatLngBounds();
+      markers.forEach(item => bounds.extend(item.marker.getPosition()));
+      map.fitBounds(bounds, 48);
+      google.maps.event.addListenerOnce(map, 'idle', () => {
+        if ((map.getZoom() || 0) > 12) {
+          map.setZoom(12);
+        }
+      });
+      return;
+    }
+    map.fitBounds(kenyaBounds(), 28);
+  }
+
+  function tagFor(name) {
+    const text = String(name || 'Organisation').trim() || 'Organisation';
+    return text.length > 26 ? `${text.slice(0, 24)}…` : text;
+  }
+
+  function focusPost(post) {
+    if (!map || !post || post === focusedPost) {
+      return;
+    }
+    const slug = post.dataset.cboSlug || '';
+    const item = markers.find(entry => String((entry.pin && entry.pin.slug) || '') === slug);
+    if (!item) {
+      return;
+    }
+    if (focusedMarker && focusedMarker !== item.marker) {
+      focusedMarker.setLabel(null);
+      focusedMarker.setZIndex(null);
+    }
+    focusedPost = post;
+    focusedMarker = item.marker;
+    if (homeZoom === null) {
+      homeZoom = map.getZoom() || 6;
+    }
+    const gentleZoom = Math.min(homeZoom + 0.65, 8);
+    item.marker.setZIndex((google.maps.Marker.MAX_ZINDEX || 1000) + 1);
+    item.marker.setLabel({
+      text: tagFor(item.pin && item.pin.name),
+      color: '#1a2340',
+      fontSize: '12px',
+      fontWeight: '700',
+      className: 'feed-pin-label',
+    });
+    if (Math.abs((map.getZoom() || 0) - gentleZoom) > 0.2) {
+      map.setZoom(gentleZoom);
+    }
+    const position = item.marker.getPosition();
+    if (position) {
+      map.panTo(position);
+    }
+  }
+
+  function visiblePost() {
+    const track = document.getElementById('peerFeedTrack');
+    if (!track) {
+      return null;
+    }
+    const trackRect = track.getBoundingClientRect();
+    const anchor = trackRect.top + Math.min(96, trackRect.height * 0.28);
+    let best = null;
+    let bestDistance = Infinity;
+    track.querySelectorAll('.interest-post[data-cbo-slug]').forEach(post => {
+      const rect = post.getBoundingClientRect();
+      if (rect.bottom < trackRect.top + 8 || rect.top > trackRect.bottom - 8) {
+        return;
+      }
+      const distance = Math.abs(rect.top - anchor);
+      if (distance < bestDistance) {
+        best = post;
+        bestDistance = distance;
+      }
+    });
+    return best;
+  }
+
+  let scrollTimer = 0;
+  const track = document.getElementById('peerFeedTrack');
+  if (track) {
+    track.addEventListener('scroll', () => {
+      window.clearTimeout(scrollTimer);
+      scrollTimer = window.setTimeout(() => focusPost(visiblePost()), 220);
+    }, { passive: true });
+  }
+
+  document.querySelectorAll('[data-peer-map-view]').forEach(button => {
+    button.addEventListener('click', () => {
+      viewMode = button.getAttribute('data-peer-map-view') || 'roadmap';
+      document.querySelectorAll('[data-peer-map-view]').forEach(other => {
+        other.classList.toggle('is-active', other === button);
+      });
+      if (map) {
+        map.setMapTypeId(viewMode);
+      }
+    });
+  });
+
+  async function mount() {
+    const { Map } = await google.maps.importLibrary('maps');
+    map = new Map(canvas, {
+      center: home.center,
+      zoom: 6,
+      mapTypeId: viewMode,
+      disableDefaultUI: true,
+      gestureHandling: 'greedy',
+      clickableIcons: false,
+    });
+    placeMarkers();
+    google.maps.event.addListenerOnce(map, 'idle', frameMap);
+  }
+
+  function load() {
+    if (window.google && window.google.maps && window.google.maps.importLibrary) {
+      mount();
+      return;
+    }
+    window.__kumbuPeerMapsReady = () => {
+      delete window.__kumbuPeerMapsReady;
+      mount();
+    };
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&callback=__kumbuPeerMapsReady&loading=async`;
+    script.async = true;
+    script.defer = true;
+    document.head.appendChild(script);
+  }
+
+  load();
+})();
+</script>
+{% endblock %}
