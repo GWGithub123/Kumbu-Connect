@@ -15,6 +15,7 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
 from io import StringIO
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 from urllib.parse import parse_qs, urlencode, urlparse
 from anthropic import APIConnectionError, APIStatusError, APITimeoutError, Anthropic, BadRequestError, RateLimitError
@@ -24,7 +25,25 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 import qrcode
 from qrcode.image.svg import SvgPathImage
 from werkzeug.utils import secure_filename
-from .community_feedback import handle_inbound_sms, render_sms_response, send_due_checkins, validate_twilio_request
+from .community_feedback import (
+    build_community_feedback_signup_body,
+    build_sms_compose_url,
+    handle_inbound_sms,
+    render_sms_response,
+    send_due_checkins,
+    validate_twilio_request,
+)
+from .sms_onboarding import (
+    catch_up_sms_onboarding_replies,
+    ensure_twilio_inbound_webhook,
+    handle_inbound_sms_onboarding,
+    initiate_sms_onboarding,
+    recent_sms_onboarding_sessions,
+    serialize_sms_onboarding_session,
+    simulate_sms_onboarding_reply,
+    twilio_is_configured,
+    _is_cloud_run_webhook,
+)
 from .community_feedback_keywords import get_cbo_keyword, normalize_sms_keyword
 from .firestore_service import (
     delete_bookkeeping_document_from_firestore,
@@ -46,6 +65,9 @@ from .models import (
     db,
     BookkeepingDocument,
     CBO,
+    CBOActivity,
+    CBOActivityComment,
+    CBOActivityLike,
     CBOContactMessage,
     CBOContactThread,
     CommunitySubscriber,
@@ -54,13 +76,48 @@ from .models import (
     GoogleFormResponse,
     GoogleFormUpload,
     SavedCBO,
+    SmsOnboardingSession,
     User,
 )
-from .kobo_service import fetch_kobo_submissions
-from .gemini_service import analyse_kobo_data, answer_marketplace_cbo_question, interpret_marketplace_query, rank_marketplace_candidates
+from .gemini_service import (
+    answer_marketplace_cbo_question,
+    explain_search_match,
+    interpret_marketplace_query,
+    rank_marketplace_candidates,
+)
 from .bookkeeping_audit_service import audit_bookkeeping_document, audit_bookkeeping_group
 from .funding_audit_service import FundingAuditError, build_funding_audit_payload, observed_charitable_giving
+from .cbo_web_research_service import (
+    apply_verification_decision,
+    apply_web_research_to_cbo,
+    load_cbo_web_research,
+    refresh_cbo_web_research,
+    refresh_stale_cbo_web_profiles,
+    serialize_web_research_for_display,
+)
+from .funder_personalization_service import (
+    FUNDER_INTEREST_CHOICES,
+    FUNDER_OUTCOME_CHOICES,
+    FUNDER_POPULATION_CHOICES,
+    build_funder_profile_layout,
+    ensure_funder_profile,
+    prioritize_metric_cards,
+    record_funder_event,
+    score_cbo_for_funder,
+    serialize_funder_profile,
+    update_funder_profile,
+)
+from .funder_alert_service import (
+    _serialize_comment,
+    attach_feed_engagement,
+    build_cbo_peer_feed,
+    build_interest_highlights,
+    ensure_historical_highlights,
+    peer_search_is_direct,
+    posts_for_organisations,
+)
 from .openai_bookkeeping_service import BookkeepingExtractionError, extract_bookkeeping_document, refine_extracted_bookkeeping_payload
+from .profile_composition_service import build_profile_composition
 from .narrative_profile_service import (
     NarrativeProfileError,
     document_text_from_pages,
@@ -169,10 +226,13 @@ def marketplace():
     min_rating_arg = request.args.get('min_rating', '').strip()
     sort_arg = request.args.get('sort', '').strip()
 
+    saved_cbo_ids = _saved_cbo_ids_for_user(current_user)
+    funder_account = ensure_funder_profile(current_user) if _user_has_funder_role(current_user) else None
+    funder_account_view = serialize_funder_profile(funder_account)
+
     ai_search = interpret_marketplace_query(q) if q else None
     ai_filters = ai_search.get('structured_filters', {}) if ai_search else {}
     ai_preferences = ai_search.get('qualitative_preferences', {}) if ai_search else {}
-    saved_cbo_ids = _saved_cbo_ids_for_user(current_user)
 
     f_class = classification_arg or (ai_filters.get('classification', '').strip().lower() if ai_filters else '')
     f_badge = badge_arg or (ai_filters.get('badge', '').strip().lower() if ai_filters else '')
@@ -185,9 +245,11 @@ def marketplace():
 
     cbos = _visible_cbo_query().all()
     cbo_profiles = []
+    parsed_profiles = {}
     map_data_changed = False
     for cbo in cbos:
         profile = _safe_json(cbo.ai_profile_json)
+        parsed_profiles[cbo.id] = profile
         classifications = _safe_json_list(cbo.classifications_json)
         community_feedback = _community_feedback_summary(cbo)
         score = cbo.social_impact_score or 0
@@ -232,6 +294,7 @@ def marketplace():
             'rentals_growth': rentals_growth,
             'total_revenue': total_revenue,
             'ai_match': None,
+            'funder_match': score_cbo_for_funder(cbo, funder_account, profile),
             'can_save_by_viewer': _viewer_can_save_cbos(current_user) and not _user_owns_cbo(current_user, cbo),
             'saved_by_viewer': cbo.id in saved_cbo_ids,
         })
@@ -247,6 +310,7 @@ def marketplace():
                 'location': item['profile'].get('location', item['cbo'].location) or '',
                 'tagline': item['profile'].get('tagline', ''),
                 'focus_areas': item['profile'].get('focus_areas', item['cbo'].focus_areas) or '',
+                'flagship_summary': item['profile'].get('flagship_summary') or item['cbo'].flagship_summary or '',
                 'classifications': item['classifications'],
                 'badge': item['badge'],
                 'score': item['score'],
@@ -279,6 +343,13 @@ def marketplace():
             -item['total_revenue'],
             item['cbo'].name.lower(),
         ))
+    elif not ai_search_active and (funder_account_view.get('interest_areas') or (funder_account_view.get('interest_brief') or {}).get('themes')) and f_sort in {'', 'name'}:
+        cbo_profiles.sort(key=lambda item: (
+            -((item.get('funder_match') or {}).get('score') or 0),
+            -item['score'],
+            item['cbo'].name.lower(),
+        ))
+        f_sort = 'funder_match'
     else:
         sort_key = {
             'name':           lambda x: x['cbo'].name,
@@ -286,17 +357,60 @@ def marketplace():
             'revenue_desc':   lambda x: -x['total_revenue'],
             'growth_desc':    lambda x: -x['revenue_growth'],
             'badge':          lambda x: {'gold': 0, 'silver': 1, 'bronze': 2}.get(x['badge'], 3),
+            'funder_match':   lambda x: -((x.get('funder_match') or {}).get('score') or 0),
         }.get(f_sort, lambda x: x['cbo'].name)
         cbo_profiles.sort(key=sort_key)
 
+    interest_highlights = []
+    if funder_account is not None:
+        try:
+            ensure_historical_highlights(cbos, parsed_profiles)
+            interest_highlights = build_interest_highlights(funder_account, limit=12)
+        except Exception:
+            current_app.logger.exception('Could not build the funder interest highlights reel')
+            interest_highlights = []
+
+    feed_slugs = {item.get('cbo_slug') for item in interest_highlights if item.get('cbo_slug')}
+    profiles_by_slug = {item['cbo'].slug: item for item in cbo_profiles}
+    for item in cbo_profiles:
+        item['has_feed_update'] = item['cbo'].slug in feed_slugs
+    for highlight in interest_highlights:
+        source = profiles_by_slug.get(highlight.get('cbo_slug'))
+        highlight['can_save'] = bool(source and source.get('can_save_by_viewer'))
+        highlight['saved'] = bool(source and source.get('saved_by_viewer'))
+        highlight['save_url'] = url_for('main.api_toggle_saved_cbo', slug=highlight['cbo_slug']) if highlight['can_save'] else ''
+    attach_feed_engagement(interest_highlights, current_user)
+
+    has_saved_interests = bool(
+        funder_account_view.get('interest_areas')
+        or (funder_account_view.get('interest_brief') or {}).get('themes')
+    )
+    interest_directory_active = bool(has_saved_interests and not ai_search_active)
+    interest_directory_total = 0
+    map_profiles = cbo_profiles
+    if interest_directory_active:
+        matched = [
+            item for item in cbo_profiles
+            if (item.get('funder_match') or {}).get('is_match')
+        ]
+        interest_directory_total = len(matched)
+        matched_ids = {item['cbo'].id for item in matched}
+        map_profiles = list(matched)
+        for item in cbo_profiles:
+            if item['has_feed_update'] and item['cbo'].id not in matched_ids:
+                map_profiles.append(item)
+        cbo_profiles = matched[:12]
+
     map_pins = [
         _build_map_pin(item, ai_search_active)
-        for item in cbo_profiles
+        for item in map_profiles
         if item['cbo'].latitude is not None and item['cbo'].longitude is not None
     ]
 
     return render_template('marketplace.html',
                            cbo_profiles=cbo_profiles,
+                           interest_directory_active=interest_directory_active,
+                           interest_directory_total=interest_directory_total,
                            q=q, f_class=f_class, f_badge=f_badge,
                            f_min_score=f_min_score, f_max_score=f_max_score,
                            f_min_rev=f_min_rev, f_min_rating=f_min_rating,
@@ -308,7 +422,9 @@ def marketplace():
                            min_score_display=min_score_arg if min_score_arg else (f_min_score if f_min_score else ''),
                            max_score_display=max_score_arg if max_score_arg else (f_max_score if (max_score_arg or (ai_filters and ai_filters.get('max_score') is not None)) else ''),
                            min_revenue_display=min_revenue_arg if min_revenue_arg else (int(f_min_rev) if f_min_rev else ''),
-                           min_rating_display=min_rating_arg if min_rating_arg else (f_min_rating if f_min_rating else ''))
+                           min_rating_display=min_rating_arg if min_rating_arg else (f_min_rating if f_min_rating else ''),
+                           funder_account=funder_account_view,
+                           interest_highlights=interest_highlights)
 
 
 @main_bp.route('/saved-cbos')
@@ -362,6 +478,234 @@ def saved_cbos():
     return render_template('saved_cbos.html', saved_cards=saved_cards)
 
 
+@main_bp.route('/funder/profile', methods=['GET', 'POST'])
+@login_required
+def funder_profile():
+    _require_funder()
+    profile = ensure_funder_profile(current_user)
+    if request.method == 'POST':
+        try:
+            update_funder_profile(current_user, {
+            'organization_name': request.form.get('organization_name'),
+            'contact_email': request.form.get('contact_email'),
+            'website': request.form.get('website'),
+            'country_region': request.form.get('country_region'),
+            'about_text': request.form.get('about_text'),
+            'interest_areas': request.form.getlist('interest_areas'),
+            'interest_themes': request.form.get('interest_themes'),
+            'priority_populations': request.form.getlist('priority_populations'),
+            'priority_outcomes': request.form.getlist('priority_outcomes'),
+            'evidence_needed': request.form.get('evidence_needed'),
+            'geographic_focus': request.form.get('geographic_focus'),
+            'grant_size_min': request.form.get('grant_size_min'),
+            'grant_size_max': request.form.get('grant_size_max'),
+            'grant_currency': request.form.get('grant_currency'),
+        })
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'danger')
+            return render_template(
+                'funder_profile.html',
+                profile=serialize_funder_profile(ensure_funder_profile(current_user)),
+                interest_choices=FUNDER_INTEREST_CHOICES,
+                population_choices=FUNDER_POPULATION_CHOICES,
+                outcome_choices=FUNDER_OUTCOME_CHOICES,
+            )
+        flash('Your funder profile is saved. Interest alerts go to your preferred contact email when you set one, and otherwise to your login email.', 'success')
+        next_url = request.form.get('next') or url_for('main.marketplace')
+        return redirect(next_url)
+    return render_template(
+        'funder_profile.html',
+        profile=serialize_funder_profile(profile),
+        interest_choices=FUNDER_INTEREST_CHOICES,
+        population_choices=FUNDER_POPULATION_CHOICES,
+        outcome_choices=FUNDER_OUTCOME_CHOICES,
+    )
+
+
+def _peer_pin(cbo, profile: dict) -> dict | None:
+    if cbo.latitude is None or cbo.longitude is None:
+        return None
+    return {
+        'slug': cbo.slug,
+        'name': (profile or {}).get('name') or cbo.name,
+        'location': (profile or {}).get('location') or cbo.location or '',
+        'latitude': cbo.latitude,
+        'longitude': cbo.longitude,
+    }
+
+
+def _peer_directory(exclude_id: int | None = None) -> list[tuple]:
+    changed = False
+    records = []
+    for cbo in _visible_cbo_query().all():
+        if exclude_id is not None and cbo.id == exclude_id:
+            continue
+        profile = _safe_json(cbo.ai_profile_json) or {}
+        changed = ensure_cbo_geocoded(cbo, profile=profile) or changed
+        records.append((cbo, profile))
+    if changed:
+        db.session.commit()
+    return records
+
+
+def _search_peer_feed(viewer_cbo, query: str, viewer) -> dict:
+    """Name, place, and plain-language search for the peer feed. Ranking follows the query only."""
+    plan = interpret_marketplace_query(query)
+    records = _peer_directory()
+    candidates = []
+    by_slug = {}
+    for cbo, profile in records:
+        classifications = _safe_json_list(cbo.classifications_json)
+        by_slug[cbo.slug] = (cbo, profile, classifications)
+        candidates.append({
+            'slug': cbo.slug,
+            'name': profile.get('name') or cbo.name,
+            'location': profile.get('location') or cbo.location or '',
+            'tagline': profile.get('tagline') or '',
+            'focus_areas': profile.get('focus_areas') or cbo.focus_areas or '',
+            'flagship_summary': profile.get('flagship_summary') or cbo.flagship_summary or '',
+            'classifications': classifications,
+            'badge': cbo.data_quality_badge or 'bronze',
+            'score': cbo.social_impact_score or 0,
+            'total_revenue': 0,
+            'revenue_growth': 0,
+            'avg_rating': None,
+            'responses': 0,
+            'recent_quotes': [],
+        })
+    ranking = rank_marketplace_candidates(query, candidates, plan) if candidates else {'summary': '', 'matches': []}
+    direct = []
+    related = []
+    for match in ranking.get('matches') or []:
+        packed = by_slug.get(match.get('slug'))
+        if packed is None:
+            continue
+        cbo, profile, classifications = packed
+        parts = [
+            cbo.name,
+            profile.get('name'),
+            cbo.location,
+            profile.get('location'),
+            cbo.county_region,
+            profile.get('county_region'),
+            cbo.focus_areas,
+            profile.get('focus_areas'),
+            profile.get('tagline'),
+            ' '.join(classifications),
+        ]
+        row = {
+            'cbo': cbo,
+            'name': profile.get('name') or cbo.name,
+            'location': profile.get('location') or cbo.location or '',
+            'focus': profile.get('focus_areas') or cbo.focus_areas or '',
+            'reason': ((match.get('reasons') or [''])[0] or '').strip(),
+            'score': int(match.get('score') or 0),
+            'profile_url': url_for('main.cbo_profile', slug=cbo.slug),
+            'pin': _peer_pin(cbo, profile),
+        }
+        if peer_search_is_direct(query, *[part for part in parts if part]):
+            direct.append(row)
+        elif row['score'] >= 25 and row['reason']:
+            related.append(row)
+    chosen = direct or related
+    chosen.sort(key=lambda item: (-item['score'], item['name'].lower()))
+    chosen = chosen[:12]
+    return {
+        'summary': ranking.get('summary') or '',
+        'organisations': chosen,
+        'posts': posts_for_organisations([item['cbo'] for item in chosen], viewer),
+        'pins': [item['pin'] for item in chosen if item.get('pin')],
+    }
+
+
+@main_bp.route('/cbo-feed')
+@login_required
+def cbo_peer_feed():
+    if not (current_user.has_role('cbo') and current_user.cbo_id):
+        abort(403)
+    cbo = db.session.get(CBO, current_user.cbo_id)
+    if cbo is None:
+        abort(404)
+    ensure_historical_highlights(_visible_cbo_query().all())
+    query = request.args.get('q', '').strip()
+    peer_search = _search_peer_feed(cbo, query, current_user) if query else None
+    feed = {'popular': [], 'regional': [], 'similar': []} if peer_search else build_cbo_peer_feed(cbo, current_user)
+    if peer_search:
+        map_pins = peer_search['pins']
+    else:
+        map_pins = [
+            pin for other, profile in _peer_directory()
+            if (pin := _peer_pin(other, profile))
+        ]
+    return render_template(
+        'cbo_peer_feed.html',
+        cbo=cbo,
+        peer_feed=feed,
+        q=query,
+        peer_search=peer_search,
+        map_pins=map_pins,
+        fit_map_to_pins=bool(peer_search and map_pins),
+        google_maps_api_key=get_google_maps_api_key(),
+    )
+
+
+@main_bp.route('/api/feed/<int:activity_id>/like', methods=['POST'])
+@login_required
+def api_toggle_feed_like(activity_id):
+    if not (current_user.has_role('cbo') and current_user.cbo_id):
+        abort(403)
+    activity = db.session.get(CBOActivity, activity_id)
+    if activity is None:
+        abort(404)
+    if activity.cbo_id == current_user.cbo_id:
+        abort(403)
+    existing = CBOActivityLike.query.filter_by(user_id=current_user.id, activity_id=activity.id).first()
+    if existing is None:
+        db.session.add(CBOActivityLike(user_id=current_user.id, activity_id=activity.id))
+        liked = True
+    else:
+        db.session.delete(existing)
+        liked = False
+    db.session.commit()
+    like_count = CBOActivityLike.query.filter_by(activity_id=activity.id).count()
+    return jsonify({'ok': True, 'liked': liked, 'like_count': like_count})
+
+
+@main_bp.route('/api/feed/<int:activity_id>/comment', methods=['POST'])
+@login_required
+def api_create_feed_comment(activity_id):
+    if not (current_user.has_role('cbo') and current_user.cbo_id):
+        abort(403)
+    activity = db.session.get(CBOActivity, activity_id)
+    if activity is None:
+        abort(404)
+    if activity.cbo_id == current_user.cbo_id:
+        abort(403)
+    wants_json = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    payload = request.get_json(silent=True) or {}
+    body = str(request.form.get('body') or payload.get('body') or '').strip()
+    next_url = request.referrer or url_for('main.cbo_peer_feed')
+
+    def _fail(message: str, status: int):
+        if wants_json:
+            return jsonify({'ok': False, 'error': message}), status
+        flash(message, 'danger')
+        return redirect(next_url)
+
+    if len(body) < 2:
+        return _fail('Write a short comment first.', 400)
+    comment = CBOActivityComment(user_id=current_user.id, activity_id=activity.id, body=body[:500])
+    db.session.add(comment)
+    db.session.commit()
+    comment_count = CBOActivityComment.query.filter_by(activity_id=activity.id).count()
+    serialized = _serialize_comment(comment)
+    if wants_json:
+        return jsonify({'ok': True, 'comment': serialized, 'comment_count': comment_count})
+    flash('Your comment is on the post.', 'success')
+    return redirect(next_url)
+
+
 @main_bp.route('/marketplace/messages/<int:thread_id>/delete', methods=['POST'])
 @login_required
 def delete_cbo_contact_thread(thread_id):
@@ -410,6 +754,13 @@ def cbo_dashboard():
         cbo=cbo,
         profile=profile,
         own=True,
+        composition=build_profile_composition(
+            cbo,
+            profile,
+            community_feedback,
+            own=True,
+            can_manage_program_photos=_can_manage_program_photos(cbo),
+        ),
         viewer_can_save=False,
         saved_by_viewer=False,
         viewer_is_funder=False,
@@ -423,6 +774,9 @@ def cbo_dashboard():
         contact_threads=_serialize_contact_threads_for_cbo(cbo, current_user=current_user),
         viewer_contact_thread=None,
         contact_post_url=url_for('main.send_cbo_contact_message', slug=cbo.slug),
+        funder_layout=None,
+        can_review_public_sources=True,
+        web_research=serialize_web_research_for_display(load_cbo_web_research(cbo), cbo=cbo),
     )
 
 
@@ -431,7 +785,6 @@ def cbo_dashboard():
 @login_required
 def cbo_profile(slug):
     cbo = CBO.query.filter_by(slug=slug).first_or_404()
-    _require_feedback_access(cbo)
     own = _user_owns_cbo(current_user, cbo)
     viewer_is_funder = _user_has_funder_role(current_user) and not own
     viewer_can_save = _viewer_can_save_cbos(current_user) and not own
@@ -443,11 +796,70 @@ def cbo_profile(slug):
     embedded_layout = str(request.args.get('embedded') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
     if isolated_view not in {'profile', 'bookkeeping-live', 'bookkeeping-digitized'}:
         isolated_view = ''
+    can_see_bookkeeping = bool(own or _has_developer_access())
+    if not can_see_bookkeeping and isolated_view.startswith('bookkeeping'):
+        isolated_view = ''
+    funder_layout = None
+    search_match = None
+    search_query = str(request.args.get('q') or '').strip()
+    if viewer_is_funder and not isolated_view:
+        record_funder_event(current_user, 'view_profile', cbo, {'slug': cbo.slug, 'search_query': search_query})
+        funder_layout = build_funder_profile_layout(current_user, cbo, profile)
+        if funder_layout:
+            cards = profile.get('operational_metric_cards') if isinstance(profile, dict) else None
+            if cards:
+                profile = dict(profile)
+                profile['operational_metric_cards'] = prioritize_metric_cards(
+                    cards,
+                    funder_layout.get('kpi_priority'),
+                )
+        if search_query:
+            listed_score = str(request.args.get('ss') or '').strip()
+            try:
+                listed_score = int(listed_score) if listed_score else None
+            except ValueError:
+                listed_score = None
+            recent_quotes = []
+            for quote in (community_feedback.get('recent_quotes') or []):
+                if isinstance(quote, dict) and quote.get('quote'):
+                    recent_quotes.append(str(quote.get('quote')))
+            search_match = explain_search_match(search_query, {
+                'slug': cbo.slug,
+                'name': profile.get('name', cbo.name) if isinstance(profile, dict) else cbo.name,
+                'location': (profile.get('location') if isinstance(profile, dict) else '') or cbo.location or '',
+                'tagline': (profile.get('tagline') if isinstance(profile, dict) else '') or '',
+                'focus_areas': (profile.get('focus_areas') if isinstance(profile, dict) else '') or cbo.focus_areas or '',
+                'flagship_summary': (profile.get('flagship_summary') if isinstance(profile, dict) else '') or cbo.flagship_summary or '',
+                'classifications': _safe_json_list(cbo.classifications_json),
+                'badge': cbo.data_quality_badge or '',
+                'score': cbo.social_impact_score or 0,
+                'total_revenue': 0,
+                'revenue_growth': 0,
+                'avg_rating': community_feedback.get('avg_rating'),
+                'responses': community_feedback.get('responses', 0),
+                'recent_quotes': recent_quotes,
+            })
+            if listed_score is not None and search_match:
+                search_match['score'] = max(0, min(100, listed_score))
+                search_match['from_results'] = True
+    can_review_public_sources = bool(own or _has_developer_access())
+    web_research = (
+        serialize_web_research_for_display(load_cbo_web_research(cbo), cbo=cbo)
+        if can_review_public_sources else None
+    )
     return render_template(
         'cbo_profile.html',
         cbo=cbo,
         profile=profile,
         own=own,
+        composition=build_profile_composition(
+            cbo,
+            profile,
+            community_feedback,
+            viewer_is_funder=viewer_is_funder,
+            own=own,
+            can_manage_program_photos=_can_manage_program_photos(cbo),
+        ),
         viewer_can_save=viewer_can_save,
         saved_by_viewer=saved_by_viewer,
         viewer_is_funder=viewer_is_funder,
@@ -463,7 +875,122 @@ def cbo_profile(slug):
         contact_threads=_serialize_contact_threads_for_cbo(cbo, current_user=current_user),
         viewer_contact_thread=viewer_contact_thread,
         contact_post_url=url_for('main.send_cbo_contact_message', slug=cbo.slug) if viewer_is_funder or own else None,
+        funder_layout=funder_layout,
+        search_match=search_match,
+        can_review_public_sources=can_review_public_sources,
+        web_research=web_research,
+        bookkeeping_visible=can_see_bookkeeping,
+        open_contact=str(request.args.get('contact') or '').strip().lower() in {'1', 'true', 'yes'},
     )
+
+
+@main_bp.route('/cbo/<int:cbo_id>/web-research/refresh', methods=['POST'])
+@login_required
+def refresh_cbo_public_research(cbo_id):
+    cbo = CBO.query.get_or_404(cbo_id)
+    if not (_user_owns_cbo(current_user, cbo) or _has_developer_access()):
+        abort(403)
+    try:
+        result = refresh_cbo_web_research(cbo, force=True)
+    except Exception:
+        current_app.logger.exception('Failed to refresh public-web research for CBO %s', cbo.id)
+        flash('Public-source research could not be refreshed just now.', 'danger')
+        return redirect(request.referrer or url_for('main.cbo_profile', slug=cbo.slug))
+    claim_count = len(result.get('claims') or [])
+    article_count = len(result.get('search_results') or [])
+    error = str(result.get('error') or '').strip()
+    if claim_count:
+        flash(
+            f'Found {claim_count} public fact{"s" if claim_count != 1 else ""} for {cbo.name}. Review and confirm the ones that belong on this profile.',
+            'success',
+        )
+    elif article_count:
+        flash(
+            f'Found {article_count} public page{"s" if article_count != 1 else ""} for {cbo.name}. Review them in Public sources.',
+            'success',
+        )
+    elif error:
+        flash(f'Could not search the web for {cbo.name}: {error}', 'danger')
+    else:
+        flash(f'Searched the web for {cbo.name}. No clearly matching public pages were found.', 'info')
+    return redirect(request.referrer or url_for('main.cbo_profile', slug=cbo.slug, _anchor='public-sources'))
+
+
+@main_bp.route('/cbo/<slug>/web-research/confirm', methods=['POST'])
+@login_required
+def confirm_cbo_public_research(slug):
+    cbo = CBO.query.filter_by(slug=slug).first_or_404()
+    if not (_user_owns_cbo(current_user, cbo) or _has_developer_access()):
+        abort(403)
+    research = load_cbo_web_research(cbo)
+    action = str(request.form.get('action') or 'partial').strip().lower()
+    selected = {int(value) for value in request.form.getlist('verified_claim_id') if str(value).isdigit()}
+    if action == 'accept_all':
+        decision = {
+            'decision': 'accept_all',
+            'verified_ids': [int(item.get('id') or 0) for item in (research.get('claims') or []) if item.get('id')],
+            'rejected_ids': [],
+            'note': 'Confirmed in the CBO dashboard.',
+        }
+    elif action == 'reject_all':
+        decision = {
+            'decision': 'reject_all',
+            'verified_ids': [],
+            'rejected_ids': [int(item.get('id') or 0) for item in (research.get('claims') or []) if item.get('id')],
+            'note': 'Rejected in the CBO dashboard.',
+        }
+    else:
+        decision = {
+            'decision': 'partial',
+            'verified_ids': list(selected),
+            'rejected_ids': [],
+            'note': 'Updated in the CBO dashboard.',
+        }
+    suggestion_keys = request.form.getlist('apply_suggestion')
+    media_ids = request.form.getlist('apply_media')
+    profile_image_id = request.form.get('apply_profile_image') or ''
+    if action == 'accept_all' and not suggestion_keys:
+        suggestion_keys = None
+    elif action == 'reject_all':
+        suggestion_keys = []
+    if action == 'reject_all':
+        media_ids = []
+        profile_image_id = ''
+    elif action == 'accept_all' and not media_ids and suggestion_keys is None:
+        media_ids = None
+    updated = apply_verification_decision(research, decision)
+    apply_web_research_to_cbo(
+        cbo,
+        updated,
+        only_verified=True,
+        suggestion_keys=suggestion_keys,
+        media_ids=media_ids,
+        profile_image_id=profile_image_id,
+    )
+    db.session.commit()
+    latest = int(((updated.get('applied_receipt') or {}).get('latest_count') or 0))
+    if action == 'reject_all':
+        flash('Those public facts were rejected and were not added to the profile.', 'info')
+    elif latest:
+        flash(
+            f'{latest} fact{"s were" if latest != 1 else " was"} approved and added to this profile.',
+            'success',
+        )
+    else:
+        flash('No new public facts were selected to add.', 'info')
+    return redirect(url_for('main.cbo_profile', slug=cbo.slug, _anchor='public-sources'))
+
+
+@main_bp.route('/admin/web-research/refresh', methods=['POST'])
+@login_required
+def developer_refresh_public_research():
+    _require_developer_access()
+    result = refresh_stale_cbo_web_profiles(limit=int(request.form.get('limit') or 25), force=bool(request.form.get('force')))
+    flash(
+        f"Refreshed {result['refreshed']} CBO public-source profiles, skipped {result['skipped']}.",
+        'success' if not result.get('errors') else 'warning',
+    )
+    return redirect(request.referrer or url_for('main.developer_sms_activity'))
 
 
 @main_bp.route('/cbo/<slug>/contact', methods=['POST'])
@@ -1015,7 +1542,6 @@ def delete_program_photo(cbo_id, photo_id):
 @login_required
 def cbo_program_photo(slug, photo_id):
     cbo = CBO.query.filter_by(slug=slug).first_or_404()
-    _require_feedback_access(cbo)
     profile = _safe_json(cbo.ai_profile_json) or {}
     found = find_program_photo(profile, photo_id)
     if not found:
@@ -1036,6 +1562,34 @@ def cbo_program_photo(slug, photo_id):
         mimetype=mime_type,
         download_name=photo.get('filename') or f'program-photo-{photo_id}',
     )
+
+
+@main_bp.route('/cbo/<slug>/profile-image')
+@login_required
+def cbo_profile_image(slug):
+    cbo = CBO.query.filter_by(slug=slug).first_or_404()
+    profile = _safe_json(cbo.ai_profile_json) or {}
+    image = profile.get('profile_image') if isinstance(profile.get('profile_image'), dict) else {}
+    if not str(image.get('stored_path') or '').strip():
+        abort(404)
+    try:
+        file_bytes, mime_type = get_stored_file_bytes(
+            storage_backend=image.get('storage_backend') or 'local',
+            stored_path=image.get('stored_path') or '',
+            mime_type=image.get('mime_type') or 'image/png',
+            storage_bucket=image.get('storage_bucket') or '',
+            storage_object_path=image.get('storage_object_path') or '',
+        )
+    except FileNotFoundError:
+        abort(404)
+    response = send_file(
+        BytesIO(file_bytes),
+        mimetype=mime_type,
+        download_name=image.get('filename') or 'profile-image',
+    )
+    if mime_type == 'image/svg+xml':
+        response.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'"
+    return response
 
 
 @main_bp.route('/cbo/<int:cbo_id>/bookkeeping/inventory', methods=['POST'])
@@ -1957,80 +2511,6 @@ def delete_bookkeeping_document(document_id):
         )
 
 
-# ── Sync: pull Kobo data → Gemini analysis → save profile ────────
-@main_bp.route('/cbo/<int:cbo_id>/sync', methods=['POST'])
-@login_required
-def sync_cbo(cbo_id):
-    cbo = CBO.query.get_or_404(cbo_id)
-
-    # Only the CBO's own users or funders can trigger a sync
-    if _user_has_cbo_role(current_user) and not _user_has_funder_role(current_user) and current_user.cbo_id != cbo.id:
-        abort(403)
-
-    if not cbo.has_kobo_connection:
-        flash('This CBO no longer has an active KoboToolbox API connection. Reconfigure the connection before syncing again.', 'info')
-        return redirect(url_for('main.cbo_profile', slug=cbo.slug))
-
-    try:
-        # 1. Pull live data from KoboToolbox
-        asset_id = cbo.kobo_asset_id
-        submissions = fetch_kobo_submissions(asset_id)
-
-        # 2. Cache raw data
-        cbo.raw_kobo_json = json.dumps(submissions, default=str)
-
-        # 3. Send to Gemini for analysis
-        profile = analyse_kobo_data(submissions, cbo_name=cbo.name)
-
-        # 4. Persist structured profile
-        cbo.ai_profile_json = json.dumps(profile, default=str)
-        _apply_profile_fields(cbo, profile)
-        ensure_cbo_geocoded(cbo, profile=profile)
-        
-        # 5. Compute and save growth metrics
-        from .gemini_service import compute_growth_metrics, compute_data_quality_badge
-        growth_data = compute_growth_metrics(submissions)
-        cbo.growth_metrics_json = json.dumps(growth_data, default=str)
-
-        # 6. Badge, classifications, social impact score
-        cbo.data_quality_badge  = compute_data_quality_badge(submissions)
-        cbo.classifications_json = json.dumps(profile.get('classifications', [cbo.cbo_identifier or 'community']))
-        cbo.social_impact_score  = int(profile.get('social_impact_score', 0) or 0)
-
-        cbo.last_synced = datetime.utcnow()
-        db.session.commit()
-
-        flash('Profile synced with live KoboToolbox data & AI analysis!', 'success')
-    except Exception as e:
-        db.session.rollback()
-        flash(f'Sync failed: {e}', 'danger')
-
-    return redirect(url_for('main.cbo_profile', slug=cbo.slug))
-
-
-@main_bp.route('/cbo/<int:cbo_id>/disconnect-kobo', methods=['POST'])
-@login_required
-def disconnect_kobo(cbo_id):
-    cbo = CBO.query.get_or_404(cbo_id)
-
-    if not _user_owns_cbo(current_user, cbo):
-        abort(403)
-
-    if not cbo.has_kobo_connection:
-        flash('Your KoboToolbox API connection is already disconnected.', 'info')
-        return redirect(url_for('main.cbo_profile', slug=cbo.slug))
-
-    try:
-        cbo.disconnect_kobo()
-        db.session.commit()
-        flash('KoboToolbox API connection terminated. Existing profile content remains visible, but no future Kobo syncs will run until the connection is set up again.', 'success')
-    except Exception as exc:
-        db.session.rollback()
-        flash(f'Could not terminate the KoboToolbox API connection: {exc}', 'danger')
-
-    return redirect(url_for('main.cbo_profile', slug=cbo.slug))
-
-
 # ── API: return profile JSON (for AJAX) ──────────────────────────
 @main_bp.route('/api/cbo/<slug>')
 @login_required
@@ -2061,10 +2541,12 @@ def api_toggle_saved_cbo(slug):
         db.session.add(SavedCBO(user_id=current_user.id, cbo_id=cbo.id))
         saved = True
         message = f'Saved {cbo.name} to Saved CBOs.'
+        record_funder_event(current_user, 'save_cbo', cbo, {'slug': cbo.slug})
     else:
         db.session.delete(saved_entry)
         saved = False
         message = f'Removed {cbo.name} from Saved CBOs.'
+        record_funder_event(current_user, 'unsave_cbo', cbo, {'slug': cbo.slug})
 
     db.session.commit()
 
@@ -2109,6 +2591,9 @@ def api_cbo_ai_followup(slug):
     except Exception:
         current_app.logger.exception('Failed to build marketplace AI follow-up answer for CBO %s', cbo.id)
         return jsonify({'ok': False, 'error': 'The AI follow-up answer could not be prepared right now.'}), 500
+
+    if _user_has_funder_role(current_user):
+        record_funder_event(current_user, 'ai_question', cbo, {'question': question[:240]})
 
     return jsonify({
         'ok': True,
@@ -2175,6 +2660,32 @@ def developer_sms_activity():
     _require_developer_access()
 
     activity_context = _developer_sms_activity_context()
+    try:
+        webhook_status = ensure_twilio_inbound_webhook()
+    except Exception:
+        current_app.logger.exception('Failed to sync the Twilio inbound SMS webhook')
+        webhook_status = {}
+    catch_up = {'processed': 0, 'replies_sent': 0}
+    if not _is_cloud_run_webhook(str(webhook_status.get('current_url') or '')):
+        try:
+            catch_up = catch_up_sms_onboarding_replies()
+        except Exception:
+            current_app.logger.exception('Failed to catch up missed SMS onboarding replies')
+            catch_up = {'processed': 0, 'replies_sent': 0}
+
+    if catch_up.get('replies_sent'):
+        flash(
+            f'Caught {catch_up["replies_sent"]} missed SMS onboarding replies and sent the next question.',
+            'success',
+        )
+    activity_context['sms_onboarding']['webhook_url'] = webhook_status.get('desired_url') or activity_context['sms_onboarding'].get('webhook_url') or ''
+    activity_context['sms_onboarding']['twilio_webhook_url'] = webhook_status.get('current_url') or ''
+    activity_context['sms_onboarding']['webhook_updated'] = bool(webhook_status.get('updated'))
+    activity_context['sms_onboarding']['invitations'] = [
+        serialize_sms_onboarding_session(session)
+        for session in recent_sms_onboarding_sessions(25)
+    ]
+
     return render_template(
         'developer_sms_activity.html',
         cbo_cards=activity_context['cbo_cards'],
@@ -2183,7 +2694,63 @@ def developer_sms_activity():
         recent_intake_days=activity_context['recent_intake_days'],
         add_cbo_source=activity_context['add_cbo_source'],
         add_cbo_intake=activity_context['add_cbo_intake'],
+        sms_onboarding=activity_context['sms_onboarding'],
+        open_add_cbo=str(request.args.get('open_add_cbo') or '').strip().lower() in {'1', 'true', 'yes', 'on'},
     )
+
+
+@main_bp.route('/admin/community-feedback/activity/sms-onboarding', methods=['POST'])
+@login_required
+def developer_initiate_sms_onboarding():
+    _require_developer_access()
+
+    phone_number = str(request.form.get('phone_number') or '').strip()
+    activity_context = _developer_sms_activity_context()
+    source_cbo = activity_context.get('add_cbo_source')
+    try:
+        session_record = initiate_sms_onboarding(
+            phone_number,
+            source_cbo,
+            initiated_by_user_id=current_user.id,
+        )
+        flash(
+            f'SMS onboarding started. A welcome text was sent to {session_record.phone_number}.',
+            'success',
+        )
+        try:
+            webhook = ensure_twilio_inbound_webhook()
+            if webhook.get('updated'):
+                flash('Twilio inbound replies will now come back to this local server.', 'info')
+        except Exception:
+            current_app.logger.exception('Failed to point the Twilio SMS webhook at this server')
+    except Exception as exc:
+        current_app.logger.exception('Failed to initiate SMS onboarding')
+        flash(str(exc) or 'Could not start SMS onboarding.', 'danger')
+
+    return redirect(url_for('main.developer_sms_activity', _anchor='sms-onboarding-invitations'))
+
+
+@main_bp.route('/admin/community-feedback/activity/sms-onboarding/<int:session_id>/reply', methods=['POST'])
+@login_required
+def developer_sms_onboarding_reply(session_id):
+    _require_developer_access()
+    session_record = db.session.get(SmsOnboardingSession, session_id)
+    if session_record is None:
+        abort(404)
+
+    body = str(request.form.get('body') or '').strip()
+    if not body:
+        flash('Enter the leader’s reply text before sending the next question.', 'danger')
+        return redirect(url_for('main.developer_sms_activity', _anchor='sms-onboarding-invitations'))
+
+    try:
+        simulate_sms_onboarding_reply(session_record, body, send_sms=True)
+        flash(f'Sent the next onboarding text to {session_record.phone_number}.', 'success')
+    except Exception as exc:
+        current_app.logger.exception('Failed to continue SMS onboarding session %s', session_id)
+        flash(str(exc) or 'Could not continue that SMS onboarding conversation.', 'danger')
+
+    return redirect(url_for('main.developer_sms_activity', _anchor='sms-onboarding-invitations'))
 
 
 @main_bp.route('/admin/bookkeeping')
@@ -2365,12 +2932,12 @@ def community_feedback_cbo_detail(cbo_id):
     wa_qr_url = ''
     signup_message = ''
     if twilio_phone:
-        from urllib.parse import quote as _url_quote
-        signup_message = summary.get('keyword') or get_cbo_keyword(cbo)
-        sms_qr_url = f'sms:{twilio_phone}?body={_url_quote(signup_message)}'
+        signup_message = build_community_feedback_signup_body(cbo)
+        sms_qr_url = build_sms_compose_url(twilio_phone, signup_message)
         sms_qr_svg = _render_qr_code_svg(sms_qr_url)
         # WhatsApp deep link — strip leading '+' for wa.me format
         wa_phone = twilio_phone.lstrip('+')
+        from urllib.parse import quote as _url_quote
         wa_qr_url = f'https://wa.me/{wa_phone}?text={_url_quote(signup_message)}'
         wa_qr_svg = _render_qr_code_svg(wa_qr_url)
 
@@ -2519,7 +3086,9 @@ def sms_webhook():
     body = request.form.get('Body', '')
 
     try:
-        reply = handle_inbound_sms(from_number, body)
+        reply = handle_inbound_sms_onboarding(from_number, body, inbound_sid=request.form.get('MessageSid', ''))
+        if reply is None:
+            reply = handle_inbound_sms(from_number, body)
     except Exception:
         current_app.logger.exception('Failed to process inbound SMS')
         reply = 'We could not process your message right now. Please try again in a few minutes.'
@@ -2577,7 +3146,7 @@ def _build_ai_match_groups(cbo_profiles: list[dict]) -> list[dict]:
         {
             'key': 'top',
             'title': 'Top Matches',
-            'description': 'Strongest alignment across the prompt, community feedback, and CBO profile signals.',
+            'description': 'Strongest alignment with the search you typed.',
             'entries': [],
         },
         {
@@ -4305,6 +4874,20 @@ def _is_resolvable_public_base(base_url: str) -> bool:
     return True
 
 
+def _public_tunnel_is_live(base_url: str) -> bool:
+    candidate = _normalize_public_base(base_url)
+    hostname = (urlparse(candidate).hostname or '').strip().lower()
+    if not candidate or not _is_supported_auto_tunnel_host(hostname) or not _is_resolvable_public_base(candidate):
+        return False
+    try:
+        urlopen(candidate + '/', timeout=6)
+        return True
+    except HTTPError as exc:
+        return 200 <= int(getattr(exc, 'code', 0) or 0) < 500 and int(exc.code) != 405
+    except (URLError, TimeoutError, OSError):
+        return False
+
+
 def _normalize_public_base(base_url: str) -> str:
     candidate = str(base_url or '').strip().rstrip('/')
     if not candidate:
@@ -4316,6 +4899,8 @@ def _normalize_public_base(base_url: str) -> str:
 
 def _is_supported_auto_tunnel_host(hostname: str) -> bool:
     normalized = str(hostname or '').strip().lower()
+    if normalized in {'api.trycloudflare.com', 'trycloudflare.com', 'www.trycloudflare.com'}:
+        return False
     return (
         normalized.endswith('.trycloudflare.com')
         or normalized.endswith('.ngrok-free.dev')
@@ -4341,6 +4926,16 @@ def _reset_managed_cloudflared_state() -> None:
     MANAGED_CLOUDFLARED_PROCESS = None
     MANAGED_CLOUDFLARED_URL = ''
     MANAGED_CLOUDFLARED_STARTED_AT = 0.0
+
+
+def _stop_managed_cloudflared_process(process) -> None:
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=3)
+    except Exception:
+        process.kill()
 
 
 def _capture_managed_cloudflared_output(process: subprocess.Popen, app) -> None:
@@ -4373,7 +4968,12 @@ def _ensure_managed_cloudflared_tunnel() -> str:
 
     with MANAGED_CLOUDFLARED_LOCK:
         if _managed_cloudflared_process_running() and MANAGED_CLOUDFLARED_URL:
-            return MANAGED_CLOUDFLARED_URL
+            if _public_tunnel_is_live(MANAGED_CLOUDFLARED_URL):
+                return MANAGED_CLOUDFLARED_URL
+            stale = MANAGED_CLOUDFLARED_PROCESS
+            _reset_managed_cloudflared_state()
+            _stop_managed_cloudflared_process(stale)
+            current_app.config['PUBLIC_TUNNEL_URL'] = ''
 
         if _managed_cloudflared_process_running() and not MANAGED_CLOUDFLARED_URL:
             started_at = MANAGED_CLOUDFLARED_STARTED_AT
@@ -4469,8 +5069,14 @@ def _discover_live_public_base() -> str:
 
 
 def _build_public_route_url(endpoint: str, **values) -> str:
+    def path_for_endpoint() -> str:
+        if has_request_context():
+            return url_for(endpoint, **values)
+        with current_app.test_request_context('/'):
+            return url_for(endpoint, **values)
+
     def finalize_url(base_url: str) -> str:
-        full_url = f'{base_url}{url_for(endpoint, **values)}'
+        full_url = f'{base_url}{path_for_endpoint()}'
         if 'ngrok-free.dev' in base_url or 'ngrok.app' in base_url or 'ngrok-free.app' in base_url:
             separator = '&' if '?' in full_url else '?'
             return f'{full_url}{separator}{urlencode({"ngrok-skip-browser-warning": "1"})}'
@@ -4489,10 +5095,14 @@ def _build_public_route_url(endpoint: str, **values) -> str:
     if configured_base and _is_resolvable_public_base(configured_base):
         return finalize_url(configured_base)
 
-    request_base = request.url_root.strip().rstrip('/')
-    request_host = (request.host or '').split(':', 1)[0].lower()
-    if request_base and not _is_local_request_host(request_host):
-        return finalize_url(request_base)
+    if has_request_context():
+        request_base = request.url_root.strip().rstrip('/')
+        request_host = (request.host or '').split(':', 1)[0].lower()
+        if request_base and not _is_local_request_host(request_host):
+            return finalize_url(request_base)
+    else:
+        request_base = ''
+        request_host = (current_app.config.get('APP_HOST') or '127.0.0.1').strip().lower()
 
     live_public_base = _discover_live_public_base()
     if live_public_base:
@@ -4506,7 +5116,7 @@ def _build_public_route_url(endpoint: str, **values) -> str:
             return finalize_url(managed_public_base)
         return ''
 
-    return finalize_url(request_base)
+    return finalize_url(request_base) if request_base else ''
 
 
 def _build_public_token_route_url(endpoint: str, **values) -> str:
@@ -4749,6 +5359,8 @@ def _intake_response_source_label(raw_response) -> str:
     source = str(raw_response.get('source') or '').strip().lower()
     if source == 'offline_intake':
         return 'Kumbu Intake App'
+    if source == 'sms_onboarding':
+        return 'SMS Onboarding'
     return 'Google Form'
 
 
@@ -5562,7 +6174,7 @@ def _upsert_google_form_user(cbo: CBO, email: str, display_name: str, source_cbo
     return user, created
 
 
-def _provision_google_form_response(source_cbo: CBO, response_record: GoogleFormResponse) -> dict:
+def _provision_google_form_response(source_cbo: CBO, response_record: GoogleFormResponse, allow_claude: bool = True) -> dict:
     answer_lookup = _google_form_answer_lookup(_safe_json_list(response_record.answers_json))
     submitted_email = _google_form_answer_value(answer_lookup, 'Email address') or response_record.respondent_email
     email = str(submitted_email or '').strip().lower()
@@ -5583,7 +6195,7 @@ def _provision_google_form_response(source_cbo: CBO, response_record: GoogleForm
         seed_profile=profile,
         response_record=response_record,
         answer_lookup=answer_lookup,
-        allow_claude=True,
+        allow_claude=allow_claude,
     )
 
     target_cbo.bookkeeping_template_json = json.dumps(
@@ -5637,7 +6249,7 @@ def _read_cached_intake_upload_bytes(file_payload: dict, inline_uploads: dict[st
     return download_drive_file(file_id)
 
 
-def _ingest_intake_response_payload(cbo: CBO, response_payload: dict, inline_uploads: dict[str, dict] | None = None) -> dict:
+def _ingest_intake_response_payload(cbo: CBO, response_payload: dict, inline_uploads: dict[str, dict] | None = None, allow_claude: bool = True) -> dict:
     inline_uploads = inline_uploads or {}
     result = {
         'responses_synced': 0,
@@ -5858,27 +6470,38 @@ def _ingest_intake_response_payload(cbo: CBO, response_payload: dict, inline_upl
                 result['failures'].append(f"{upload.original_filename or upload.drive_file_id}: {exc}")
 
     was_provisioned = bool(response_record.provisioned_user_id) and response_record.provisioning_status == 'provisioned'
-    try:
-        provision_result = _provision_google_form_response(cbo, response_record)
-        if provision_result.get('user_id') and not was_provisioned:
-            result['provisioned_accounts'] += 1
-    except Exception as exc:
-        db.session.rollback()
-        current_app.logger.exception(
-            'Failed to provision intake response %s for CBO %s',
-            response_record.id,
-            cbo.id,
-        )
-        response_record = GoogleFormResponse.query.get(response_record.id)
-        if response_record:
-            response_record.provisioning_status = 'failed'
-            response_record.provisioning_error = str(exc)
-            response_record.provisioned_at = datetime.utcnow()
-            db.session.add(response_record)
-            db.session.commit()
-        result['failures'].append(
-            f"Provisioning {response_payload.get('respondent_email') or response_payload.get('response_id')}: {exc}"
-        )
+    provision_error = None
+    for attempt in range(3):
+        try:
+            provision_result = _provision_google_form_response(cbo, response_record, allow_claude=allow_claude)
+            if provision_result.get('user_id') and not was_provisioned:
+                result['provisioned_accounts'] += 1
+            provision_error = None
+            break
+        except Exception as exc:
+            db.session.rollback()
+            provision_error = exc
+            locked = 'database is locked' in str(exc).lower()
+            if locked and attempt < 2:
+                time.sleep(0.8 * (attempt + 1))
+                response_record = db.session.get(GoogleFormResponse, response_record.id) or response_record
+                continue
+            current_app.logger.exception(
+                'Failed to provision intake response %s for CBO %s',
+                response_record.id,
+                cbo.id,
+            )
+            response_record = db.session.get(GoogleFormResponse, response_record.id)
+            if response_record:
+                response_record.provisioning_status = 'failed'
+                response_record.provisioning_error = str(exc)
+                response_record.provisioned_at = datetime.utcnow()
+                db.session.add(response_record)
+                db.session.commit()
+            result['failures'].append(
+                f"Provisioning {response_payload.get('respondent_email') or response_payload.get('response_id')}: {exc}"
+            )
+            break
 
     for changed_cbo_id in bookkeeping_changed_cbo_ids:
         changed_cbo = db.session.get(CBO, changed_cbo_id)
@@ -6098,6 +6721,16 @@ def _developer_sms_activity_context() -> dict:
             'form_edit_url': add_cbo_source.intake_form_edit_url or '',
         }
 
+    sms_onboarding = {
+        'twilio_configured': twilio_is_configured(),
+        'twilio_phone': current_app.config.get('TWILIO_PHONE_NUMBER', ''),
+        'recent_sessions': recent_sms_onboarding_sessions(25),
+        'invitations': [],
+        'webhook_url': '',
+        'twilio_webhook_url': '',
+        'webhook_updated': False,
+    }
+
     cbo_cards = []
     totals = {
         'cbos': 0,
@@ -6175,6 +6808,7 @@ def _developer_sms_activity_context() -> dict:
         'recent_intake_days': recent_intake_days,
         'add_cbo_source': add_cbo_source,
         'add_cbo_intake': add_cbo_intake,
+        'sms_onboarding': sms_onboarding,
     }
 
 
@@ -6821,7 +7455,6 @@ def _build_cbo_ai_followup_context(cbo: CBO) -> dict:
             'updated_at': cbo.updated_at,
         },
         'ai_profile': profile,
-        'raw_kobo_submissions': _safe_json_list(cbo.raw_kobo_json),
         'growth_metrics': _safe_json_list(cbo.growth_metrics_json),
         'impact_data': _safe_json(cbo.impact_json),
         'classifications': _safe_json_list(cbo.classifications_json),
@@ -6989,7 +7622,7 @@ def _build_narrative_extraction_payload(narrative_payload: dict, text_pages: lis
         'narrative_profile': narrative_payload,
         'transcription_provider': 'pdf_text_layer',
         'extraction_pipeline': 'gemini_narrative_profile',
-        'model_used': current_app.config.get('NARRATIVE_DOCUMENT_MODEL', 'gemini-3.5-flash'),
+        'model_used': current_app.config.get('NARRATIVE_DOCUMENT_MODEL', 'gemini-3.8-flash'),
     }
 
 

@@ -9,7 +9,7 @@
       <p>Choose a CBO to open its QR codes, subscriber state, response history, intake data, and local simulator.</p>
       <p class="admin-hero-note">Showing all marketplace CBO profiles. {{ totals.active_or_recent_cbos }} {{ 'has' if totals.active_or_recent_cbos == 1 else 'have' }} active linked users, live SMS activity, or intake submissions from the last {{ recent_intake_days }} days.</p>
     </div>
-    {% if add_cbo_intake %}
+    {% if add_cbo_source %}
       <div class="admin-hero-actions">
         <button type="button" class="btn btn-primary btn-lg sms-activity-add-cbo-trigger" id="openAddCboModal">Add CBO</button>
       </div>
@@ -33,6 +33,72 @@
       <span class="admin-stat-label">Intake Responses</span>
       <strong class="admin-stat-value">{{ totals.intake_responses }}</strong>
     </div>
+  </section>
+
+  <section class="admin-panel" id="sms-onboarding-invitations">
+    <div class="admin-panel-header admin-panel-header--stacked">
+      <h2><i class="fas fa-paper-plane"></i> SMS Onboarding Invitations</h2>
+      <p class="panel-help-text">Track every CBO leader invitation, see which questions they have answered, and continue a conversation if a reply did not come back through Twilio.</p>
+      {% if sms_onboarding.webhook_url %}
+        <p class="panel-help-text">Inbound webhook for this server: <code>{{ sms_onboarding.webhook_url }}</code>{% if sms_onboarding.twilio_webhook_url %} · Twilio currently: <code>{{ sms_onboarding.twilio_webhook_url }}</code>{% endif %}</p>
+      {% endif %}
+    </div>
+
+    {% if sms_onboarding.invitations %}
+      <div class="sms-onboarding-invite-grid">
+        {% for item in sms_onboarding.invitations %}
+          <article class="sms-onboarding-invite-card">
+            <div class="sms-onboarding-invite-card__top">
+              <div>
+                <p class="sms-activity-hub-card__eyebrow">{{ item.progress.label }}</p>
+                <h3>{{ item.leader_name or item.phone_number }}</h3>
+                <p class="sms-activity-hub-card__keyword">{{ item.phone_number }}{% if item.cbo_name %} · {{ item.cbo_name }}{% endif %}</p>
+              </div>
+              <span class="sms-activity-hub-pill {% if item.status == 'completed' %}sms-activity-hub-pill--active{% elif item.status == 'awaiting_claim' %}sms-activity-hub-pill--intake{% elif item.status == 'cancelled' %}sms-activity-hub-pill--muted{% else %}sms-activity-hub-pill--sms{% endif %}">{{ item.status_label }}</span>
+            </div>
+
+            <div class="sms-onboarding-progress">
+              <div class="sms-onboarding-progress__bar" style="width: {{ ((item.progress.step / item.progress.total) * 100) if item.progress.total else 0 }}%;"></div>
+            </div>
+            <p class="sms-onboarding-invite-card__waiting">Step {{ item.progress.step }} of {{ item.progress.total }} — {{ item.progress.waiting }}</p>
+            {% if item.web_research and item.web_research.status %}
+              <p class="sms-onboarding-invite-card__waiting">Public research: {{ item.web_research.status.replace('_', ' ') }}{% if item.web_research.claim_count %} · {{ item.web_research.verified_count }}/{{ item.web_research.claim_count }} facts confirmed{% endif %}</p>
+            {% endif %}
+
+            {% if item.collected %}
+              <ul class="sms-onboarding-collected">
+                {% for field in item.collected %}
+                  <li><strong>{{ field.label }}:</strong> {{ field.value }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+
+            {% if item.last_inbound %}
+              <p class="sms-onboarding-message"><span>Latest reply</span>{{ item.last_inbound.message }}</p>
+            {% else %}
+              <p class="sms-onboarding-message sms-onboarding-message--muted"><span>Latest reply</span>No reply received yet.</p>
+            {% endif %}
+            {% if item.last_outbound %}
+              <p class="sms-onboarding-message"><span>Last text we sent</span>{{ item.last_outbound.message }}</p>
+            {% endif %}
+            {% if item.last_error %}
+              <p class="sms-activity-add-cbo-card__note">{{ item.last_error }}</p>
+            {% endif %}
+            <p class="sms-activity-hub-card__activity">Updated {{ item.updated_at.strftime('%Y-%m-%d %H:%M UTC') if item.updated_at else 'just now' }}</p>
+
+            {% if item.can_simulate %}
+              <form method="POST" action="{{ url_for('main.developer_sms_onboarding_reply', session_id=item.id) }}" class="sms-onboarding-continue-form">
+                <label for="sms-onboarding-reply-{{ item.id }}">Paste their reply to send the next question</label>
+                <textarea id="sms-onboarding-reply-{{ item.id }}" name="body" rows="3" placeholder="Paste the text they sent, then continue the flow." required></textarea>
+                <button type="submit" class="btn btn-outline btn-sm">Send next question</button>
+              </form>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="admin-empty-state">No SMS onboarding invitations yet. Use Add CBO → SMS Onboarding to send the first one.</p>
+    {% endif %}
   </section>
 
   <section class="admin-panel">
@@ -84,7 +150,7 @@
   </section>
 </div>
 
-{% if add_cbo_intake and add_cbo_source %}
+{% if add_cbo_source %}
   <div class="map-modal sms-activity-intake-modal" id="addCboModal" hidden>
     <div class="map-modal__backdrop" data-close-add-cbo-modal></div>
     <div class="map-modal__dialog sms-activity-intake-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="addCboModalTitle">
@@ -94,10 +160,11 @@
       <div class="map-modal__header sms-activity-intake-modal__header">
         <span class="map-modal__eyebrow">Add CBO</span>
         <h2 id="addCboModalTitle">New CBO Intake</h2>
-        <p>Use the intake flow below to onboard a new CBO. New submissions will be provisioned into a fresh CBO workspace and then appear in this activity list once they are active or recently submitted.</p>
+        <p>Choose how to onboard a new CBO. Submissions create a fresh CBO workspace and then appear in this activity list.</p>
       </div>
       <div class="map-modal__body sms-activity-intake-modal__body">
         <div class="sms-activity-add-cbo-grid">
+          {% if add_cbo_intake %}
           <article class="sms-activity-add-cbo-card">
             <span class="sms-activity-add-cbo-card__eyebrow">Offline Intake App</span>
             <h3>Mobile-first Add CBO flow</h3>
@@ -136,6 +203,38 @@
               <p>No Google Form is configured on the current onboarding source CBO yet. The offline intake app above is still available.</p>
             {% endif %}
           </article>
+          {% endif %}
+
+          <article class="sms-activity-add-cbo-card sms-activity-add-cbo-card--sms" id="smsOnboardingCard">
+            <span class="sms-activity-add-cbo-card__eyebrow">SMS Onboarding</span>
+            <h3>Text a CBO leader</h3>
+            <p>Send a welcome message from the Kumbu Connect Twilio number, then collect the most important intake questions over a few replies.</p>
+            <button type="button" class="btn btn-primary btn-sm" id="openSmsOnboardingForm">SMS Onboarding</button>
+            <form
+              class="sms-onboarding-initiate-form"
+              id="smsOnboardingForm"
+              method="POST"
+              action="{{ url_for('main.developer_initiate_sms_onboarding') }}"
+              hidden
+            >
+              <label for="smsOnboardingPhone">CBO leader phone number</label>
+              <input
+                type="tel"
+                id="smsOnboardingPhone"
+                name="phone_number"
+                placeholder="e.g. 202-642-0437 or +254712000000"
+                autocomplete="tel"
+                required
+              >
+              <button type="submit" class="btn btn-primary btn-sm" {% if not sms_onboarding.twilio_configured %}disabled{% endif %}>Initiate</button>
+              {% if sms_onboarding.twilio_phone %}
+                <p class="sms-activity-add-cbo-card__note">Messages send from {{ sms_onboarding.twilio_phone }}.</p>
+              {% elif not sms_onboarding.twilio_configured %}
+                <p class="sms-activity-add-cbo-card__note">Twilio is not configured yet, so Initiate stays disabled.</p>
+              {% endif %}
+            </form>
+            <p class="sms-activity-add-cbo-card__note">Open invitations and reply progress stay on the SMS Activity page below this dialog.</p>
+          </article>
         </div>
       </div>
     </div>
@@ -147,6 +246,10 @@
 <script>
 const addCboModal = document.getElementById('addCboModal');
 const openAddCboModalButton = document.getElementById('openAddCboModal');
+const openSmsOnboardingFormButton = document.getElementById('openSmsOnboardingForm');
+const smsOnboardingForm = document.getElementById('smsOnboardingForm');
+const smsOnboardingPhone = document.getElementById('smsOnboardingPhone');
+const shouldOpenAddCbo = {{ 'true' if open_add_cbo else 'false' }};
 
 function openAddCboModal() {
   if (!addCboModal) {
@@ -164,8 +267,25 @@ function closeAddCboModal() {
   document.body.classList.remove('modal-open');
 }
 
+function openSmsOnboardingForm() {
+  if (!smsOnboardingForm) {
+    return;
+  }
+  smsOnboardingForm.hidden = false;
+  if (openSmsOnboardingFormButton) {
+    openSmsOnboardingFormButton.hidden = true;
+  }
+  if (smsOnboardingPhone) {
+    smsOnboardingPhone.focus();
+  }
+}
+
 if (openAddCboModalButton) {
   openAddCboModalButton.addEventListener('click', openAddCboModal);
+}
+
+if (openSmsOnboardingFormButton) {
+  openSmsOnboardingFormButton.addEventListener('click', openSmsOnboardingForm);
 }
 
 document.querySelectorAll('[data-close-add-cbo-modal]').forEach(button => {
@@ -177,5 +297,10 @@ document.addEventListener('keydown', event => {
     closeAddCboModal();
   }
 });
+
+if (shouldOpenAddCbo) {
+  openAddCboModal();
+  openSmsOnboardingForm();
+}
 </script>
 {% endblock %}

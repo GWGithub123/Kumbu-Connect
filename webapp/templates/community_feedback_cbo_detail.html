@@ -367,7 +367,7 @@ bookkeeping-table__col--text
           </div>
         {% endif %}
         {% if sms_qr_url %}
-          <p class="sms-qr-card__note">Scan to open Messages with <strong>{{ twilio_phone }}</strong> pre-filled with the keyword <strong>{{ signup_message }}</strong>.</p>
+          <p class="sms-qr-card__note">Scan to open Messages to <strong>{{ twilio_phone }}</strong> with a draft already filled in: <strong>{{ signup_message }}</strong>. The first word is this CBO’s keyword, so the reply is saved on <strong>{{ cbo.name }}</strong>’s profile.</p>
         {% else %}
           <p class="sms-qr-card__note">Configure a Twilio phone number to generate the SMS sign-up QR code for this CBO.</p>
         {% endif %}

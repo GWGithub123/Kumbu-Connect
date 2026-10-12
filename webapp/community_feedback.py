@@ -1,6 +1,7 @@
 """Community SMS feedback workflow built around Twilio webhooks."""
 import json
 import re
+from urllib.parse import quote
 from datetime import datetime, timedelta
 
 import phonenumbers
@@ -161,13 +162,35 @@ def _handle_opt_out(phone_number: str) -> str:
     return 'You have been unsubscribed from Kumbu Connect community feedback messages. Reply HELP for instructions.'
 
 
+def build_sms_compose_url(phone: str, body: str) -> str:
+    """Build a cross-platform sms: URL that pre-fills the Twilio number and keyword."""
+    cleaned_phone = (phone or '').strip()
+    cleaned_body = (body or '').strip()
+    if not cleaned_phone:
+        return ''
+    # iOS historically wants sms:+1555&body=, Android wants sms:+1555?body=.
+    # `?&body=` is the usual compromise that opens Messages with the draft filled in.
+    return f'sms:{cleaned_phone}?&body={quote(cleaned_body)}'
+
+
+def build_community_feedback_signup_body(cbo: CBO) -> str:
+    keyword = get_cbo_keyword(cbo)
+    name = ' '.join(str(cbo.name or '').split())
+    if name:
+        return f'{keyword} {name}'[:120]
+    return keyword
+
+
 def _find_cbo_for_keyword(message: str) -> CBO | None:
     normalized = normalize_keyword(message)
     if not normalized:
         return None
-
+    first_token = normalize_keyword(((message or '').strip().split() or [''])[0])
     for cbo in CBO.query.filter_by(community_feedback_enabled=True).all():
-        if normalized == get_cbo_keyword(cbo):
+        keyword = get_cbo_keyword(cbo)
+        if not keyword:
+            continue
+        if normalized == keyword or first_token == keyword:
             return cbo
     return None
 
@@ -283,8 +306,14 @@ def _rating_prompt(cbo: CBO, onboarding: bool) -> str:
     if custom_prompt:
         return custom_prompt
     if onboarding:
-        return f'Thank you for joining {cbo.name} feedback. Reply with a number from 1 to 10 to rate how {keyword} has helped your community.'
-    return f'It is time for your next {cbo.name} check-in. Reply with a number from 1 to 10 to rate their recent impact.'
+        return (
+            f'Thank you for joining community feedback for {cbo.name}. '
+            f'Reply with a number from 1 to 10 to rate how {cbo.name} ({keyword}) has helped your community.'
+        )
+    return (
+        f'It is time for your next {cbo.name} check-in. '
+        f'Reply with a number from 1 to 10 to rate their recent impact.'
+    )
 
 
 def _keyword_help_text() -> str:

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_brand.html" import brand_logo %}
+{% block title %}Create Your Password — Kumbu Connect{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-header">
+      {{ brand_logo('auth', show_wordmark=False) }}
+      <h1>Create Your Password</h1>
+      <p class="auth-subtitle">Your CBO profile is already prepared. Set a password to open it.</p>
+    </div>
+
+    <div class="auth-callout">
+      {% if cbo %}
+      <strong>{{ cbo.name }}</strong><br>
+      {% endif %}
+      Account email: {{ user.email }}
+    </div>
+
+    <form method="POST" action="{{ url_for('auth.sms_onboarding_setup', token=token) }}">
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" value="{{ user.email }}" readonly>
+      </div>
+
+      <div class="form-group">
+        <label for="password">Create Password</label>
+        <input type="password" id="password" name="password" minlength="6" required placeholder="min 6 characters" autocomplete="new-password">
+      </div>
+
+      <div class="form-group">
+        <label for="password_confirm">Confirm Password</label>
+        <input type="password" id="password_confirm" name="password_confirm" minlength="6" required placeholder="repeat password" autocomplete="new-password">
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block">
+        <i class="fas fa-user-check"></i> Create Account
+      </button>
+    </form>
+
+    <p class="auth-footer-text">
+      Already finished setup? <a href="{{ url_for('auth.login', email=user.email, role='cbo') }}">Log in</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

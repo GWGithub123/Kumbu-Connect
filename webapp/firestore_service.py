@@ -200,6 +200,67 @@ def delete_bookkeeping_document_from_firestore(cbo, document_id: int) -> bool:
         return False
 
 
+def sync_sms_onboarding_session(session) -> bool:
+    try:
+        client = _get_firestore_client()
+        if not client:
+            return False
+
+        try:
+            answers = json.loads(session.answers_json or '{}')
+        except (json.JSONDecodeError, TypeError):
+            answers = {}
+        try:
+            transcript = json.loads(session.transcript_json or '[]')
+        except (json.JSONDecodeError, TypeError):
+            transcript = []
+
+        source_cbo = session.source_cbo or session.provisioned_cbo
+        if source_cbo is None:
+            return False
+
+        payload = {
+            'session_id': session.id,
+            'phone_number': session.phone_number,
+            'status': session.status,
+            'conversation_state': session.conversation_state,
+            'answers': answers,
+            'transcript': transcript,
+            'initiated_by_user_id': session.initiated_by_user_id,
+            'source_cbo_id': session.source_cbo_id,
+            'provisioned_cbo_id': session.provisioned_cbo_id,
+            'provisioned_user_id': session.provisioned_user_id,
+            'google_form_response_id': session.google_form_response_id,
+            'last_error': session.last_error,
+            'created_at': _iso(session.created_at),
+            'updated_at': _iso(session.updated_at),
+        }
+
+        cbo_targets = []
+        if session.source_cbo:
+            cbo_targets.append(session.source_cbo)
+        if session.provisioned_cbo and session.provisioned_cbo not in cbo_targets:
+            cbo_targets.append(session.provisioned_cbo)
+        if not cbo_targets and source_cbo:
+            cbo_targets.append(source_cbo)
+
+        for cbo in cbo_targets:
+            cbo_ref = _get_cbo_ref(client, cbo)
+            _write_cbo_metadata(cbo_ref, cbo)
+            cbo_ref.collection('sms_onboarding_sessions').document(str(session.id)).set(payload, merge=True)
+
+        session.firestore_synced_at = datetime.utcnow()
+        from .models import db
+        db.session.commit()
+        return True
+    except Exception:
+        current_app.logger.exception(
+            'Failed to mirror SMS onboarding session %s to Firestore',
+            getattr(session, 'id', None),
+        )
+        return False
+
+
 def get_feedback_document_path(cbo) -> str:
     return f"cbos/{_get_cbo_firestore_key(cbo)}"
 
@@ -308,6 +369,7 @@ def _write_cbo_metadata(cbo_ref, cbo):
         'tool_inventory_total': cbo.tool_inventory_total,
         'community_feedback_enabled': cbo.community_feedback_enabled,
         'community_prompt': cbo.community_prompt,
+        'web_research_refreshed_at': _iso(getattr(cbo, 'web_research_refreshed_at', None)),
         'created_at': _iso(cbo.created_at),
         'updated_at': _iso(cbo.updated_at),
     }, merge=True)

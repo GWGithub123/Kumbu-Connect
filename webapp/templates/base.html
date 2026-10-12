@@ -29,24 +29,31 @@
             <a href="{{ url_for('main.community_feedback_admin') }}">SMS Admin</a>
           {% else %}
             {% if current_user.has_role('funder') %}
-              <a href="{{ url_for('main.marketplace') }}">Marketplace</a>
-              <a href="{{ url_for('main.marketplace_messages') }}">Messages</a>
-              <a href="{{ url_for('main.saved_cbos') }}">Saved CBOs</a>
+              <a href="{{ url_for('main.marketplace') }}"{% if request.endpoint == 'main.marketplace' %} class="is-current" aria-current="page"{% endif %}>Marketplace</a>
+              <a href="{{ url_for('main.marketplace_messages') }}"{% if request.endpoint == 'main.marketplace_messages' %} class="is-current" aria-current="page"{% endif %}>Messages</a>
+              <a href="{{ url_for('main.saved_cbos') }}"{% if request.endpoint == 'main.saved_cbos' %} class="is-current" aria-current="page"{% endif %}>Saved CBOs</a>
             {% endif %}
             {% if current_user.has_role('cbo') and current_user.cbo_id %}
-              <a href="{{ url_for('main.cbo_dashboard') }}">My Profile</a>
-              <a href="{{ url_for('main.community_feedback_cbo_detail', cbo_id=current_user.cbo_id) }}">SMS Activity</a>
+              <a href="{{ url_for('main.cbo_dashboard') }}"{% if request.endpoint == 'main.cbo_dashboard' %} class="is-current" aria-current="page"{% endif %}>My Profile</a>
+              <a href="{{ url_for('main.cbo_peer_feed') }}"{% if request.endpoint == 'main.cbo_peer_feed' %} class="is-current" aria-current="page"{% endif %}>Peer feed</a>
+              <a href="{{ url_for('main.community_feedback_cbo_detail', cbo_id=current_user.cbo_id) }}"{% if request.endpoint == 'main.community_feedback_cbo_detail' %} class="is-current" aria-current="page"{% endif %}>SMS Activity</a>
             {% endif %}
           {% endif %}
+          <span class="nav-account-break" aria-hidden="true"></span>
+          {% set funder_nav_profile = current_user.has_role('funder') and not has_developer_access %}
+          {% if funder_nav_profile %}
+          <a href="{{ url_for('main.funder_profile') }}" class="nav-user{% if request.endpoint == 'main.funder_profile' %} is-current{% endif %}"{% if request.endpoint == 'main.funder_profile' %} aria-current="page"{% endif %} aria-label="{{ current_user.nav_display_name }} funder profile" title="Funder profile">
+          {% else %}
           <span class="nav-user">
+          {% endif %}
             {% if google_profile_picture_url %}
-              <img src="{{ google_profile_picture_url }}" alt="{{ current_user.nav_display_name }} Google profile photo" class="nav-avatar" referrerpolicy="no-referrer">
+              <img src="{{ google_profile_picture_url }}" alt="" class="nav-avatar" referrerpolicy="no-referrer">
             {% else %}
               <span class="nav-avatar nav-avatar--fallback" aria-hidden="true"><i class="fas fa-user-circle"></i></span>
             {% endif %}
             <span class="nav-user__name">{{ current_user.nav_display_name }}</span>
             <span class="badge {{ 'badge-developer' if has_developer_access else 'badge-' ~ current_user.role_badge_class }}">{{ 'DEVELOPER' if has_developer_access else current_user.role_badge_label }}</span>
-          </span>
+          {% if funder_nav_profile %}</a>{% else %}</span>{% endif %}
           <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline">Logout</a>
         {% else %}
           <a href="{{ url_for('auth.login') }}">Login</a>
@@ -150,7 +157,127 @@
       });
       syncSavedListVisibility();
 
+      document.addEventListener('submit', async event => {
+        const target = event.target;
+        const form = target instanceof Element ? target.closest('[data-feed-comment-form]') : null;
+        if (!form) {
+          return;
+        }
+        const input = form.querySelector('input[name="body"]');
+        const body = input ? input.value.trim() : '';
+        const errorNode = form.querySelector('.interest-post__comment-error');
+        const commentUrl = form.dataset.commentUrl || form.action;
+        if (body.length < 2 || !commentUrl) {
+          if (errorNode) {
+            errorNode.hidden = false;
+            errorNode.textContent = 'Write a short comment first.';
+          }
+          event.preventDefault();
+          return;
+        }
+        if (!window.fetch) {
+          return;
+        }
+        event.preventDefault();
+        const submit = form.querySelector('button[type="submit"]');
+        if (submit) {
+          submit.disabled = true;
+        }
+        if (errorNode) {
+          errorNode.hidden = true;
+          errorNode.textContent = '';
+        }
+        try {
+          const response = await fetch(commentUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({ body }),
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || !payload.ok || !payload.comment) {
+            if (errorNode) {
+              errorNode.hidden = false;
+              errorNode.textContent = payload.error || 'The comment could not be saved.';
+            }
+            return;
+          }
+          let list = form.parentElement.querySelector('.interest-post__comments');
+          if (!list) {
+            list = document.createElement('ul');
+            list.className = 'interest-post__comments';
+            form.before(list);
+          }
+          const item = document.createElement('li');
+          const author = document.createElement('strong');
+          author.textContent = payload.comment.author || 'Organisation';
+          const text = document.createElement('span');
+          text.textContent = payload.comment.body || '';
+          item.append(author, text);
+          list.append(item);
+          const count = form.parentElement.querySelector('.interest-post__comment-count');
+          if (count) {
+            count.innerHTML = `<i class="far fa-comment" aria-hidden="true"></i> ${payload.comment_count}`;
+          } else {
+            const social = form.parentElement.querySelector('.interest-post__social');
+            if (social) {
+              const commentCount = document.createElement('span');
+              commentCount.className = 'interest-post__comment-count';
+              commentCount.innerHTML = `<i class="far fa-comment" aria-hidden="true"></i> ${payload.comment_count}`;
+              social.append(commentCount);
+            }
+          }
+          input.value = '';
+        } catch (error) {
+          if (errorNode) {
+            errorNode.hidden = false;
+            errorNode.textContent = 'The comment could not be saved.';
+          }
+        } finally {
+          if (submit) {
+            submit.disabled = false;
+          }
+        }
+      });
+
       document.addEventListener('click', async event => {
+        const likeButton = event.target.closest('[data-feed-like]');
+        if (likeButton) {
+          event.preventDefault();
+          if (likeButton.disabled || !likeButton.dataset.likeUrl) {
+            return;
+          }
+          likeButton.disabled = true;
+          try {
+            const response = await fetch(likeButton.dataset.likeUrl, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.ok) {
+              return;
+            }
+            likeButton.classList.toggle('is-liked', Boolean(payload.liked));
+            likeButton.setAttribute('aria-pressed', payload.liked ? 'true' : 'false');
+            const icon = likeButton.querySelector('i');
+            if (icon) {
+              icon.className = payload.liked ? 'fas fa-thumbs-up' : 'far fa-thumbs-up';
+            }
+            const count = likeButton.querySelector('[data-like-count]');
+            if (count) {
+              count.textContent = String(payload.like_count);
+            }
+          } finally {
+            likeButton.disabled = false;
+          }
+          return;
+        }
+
         const button = event.target.closest(saveButtonSelector);
         if (!button) {
           return;
