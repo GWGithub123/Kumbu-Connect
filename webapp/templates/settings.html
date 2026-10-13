@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_ui_macros.html" import info_tip %}
+
+{% block title %}Settings · Kumbu Connect{% endblock %}
+
+{% block content %}
+<div class="settings-page">
+  <header class="settings-page__head">
+    <h1>Settings</h1>
+    <p>Choices here follow your account, so they apply on every device you sign in from.</p>
+  </header>
+
+  <form class="settings-card" method="POST" action="{{ url_for('i18n.settings') }}">
+    <div>
+      <h2 class="with-tip">Language {{ info_tip('Pick the language for menus, buttons, help tips, and page text. Organisation names, people, and places keep their original spelling.') }}</h2>
+      <p class="settings-card__sub">Kumbu Connect will show every page in the language you pick.</p>
+    </div>
+
+    <div class="settings-choice-grid" role="radiogroup" aria-label="Language">
+      {% for code, label in ui_languages.items() %}
+      <label class="settings-choice">
+        <input type="radio" name="preferred_language" value="{{ code }}"{% if selected_language == code %} checked{% endif %}>
+        <strong translate="no">{{ label }}</strong>
+        <span>{% if code == 'en' %}Show the platform in English{% else %}Show the platform in Kiswahili{% endif %}</span>
+      </label>
+      {% endfor %}
+    </div>
+
+    <div class="settings-actions">
+      <button type="submit" class="btn btn-primary">Save settings</button>
+      {% if saved %}<span class="settings-saved" role="status"><i class="fas fa-check"></i> Saved</span>{% endif %}
+    </div>
+  </form>
+</div>
+{% endblock %}

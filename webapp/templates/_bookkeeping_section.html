@@ -1,4 +1,5 @@
 {% from "_web_research_panel.html" import render_web_research_panel %}
+{% from "_ui_macros.html" import info_tip %}
 {% macro bookkeeping_column_class(column_name) -%}
 {%- set column = (column_name or '')|lower -%}
 {%- if 'date' in column -%}
@@ -42,6 +43,7 @@ bookkeeping-table__col--text
       <i class="fas fa-file-invoice-dollar"></i>
       <span>Digitized Documents</span>
     </button>
+    {{ info_tip('Live Bookkeeping is the shared workbook you edit each month. Digitized Documents holds the paper records you scanned, with the rows Kumbu read from them.', align='start') }}
   </div>
   {% endif %}
 
@@ -72,12 +74,12 @@ bookkeeping-table__col--text
             </label>
             <label class="bk-upload-bar__checkbox">
               <input name="combine_related_pages" type="checkbox" value="on">
-              <span>Align multi-page rows</span>
+              <span class="with-tip">Align multi-page rows {{ info_tip("Turn on when several photos are pages of the same ledger, so rows that continue across pages stay together.") }}</span>
             </label>
           </div>
           <div class="bk-upload-bar__prefs">
             <label class="bk-upload-bar__field">
-              <span class="bk-upload-bar__field-label">Document Date</span>
+              <span class="bk-upload-bar__field-label with-tip">Document Date {{ info_tip("Pick the date written on the paper record. It decides which month the rows are filed under.") }}</span>
               <input name="document_date" type="date" required>
               <span class="bk-upload-bar__field-note">This decides which month and year the document belongs to in the living workbook.</span>
             </label>
@@ -98,7 +100,7 @@ bookkeeping-table__col--text
 
     {% if mobile_scan and mobile_scan.url %}
     <div class="bk-upload-bar__qr">
-      <span class="bk-upload-bar__qr-title">Mobile Scanner</span>
+      <span class="bk-upload-bar__qr-title with-tip">Mobile Scanner {{ info_tip("Scan this code with a phone camera to open the scanner. Photos taken there upload into this organisation, even after working offline.") }}</span>
       <div class="bk-upload-bar__qr-body">
         <div class="bk-upload-bar__qr-code" aria-label="QR code for mobile scanner">
           {{ mobile_scan.qr_svg|safe }}
@@ -121,7 +123,7 @@ bookkeeping-table__col--text
 
     <div class="bk-pane-intro bk-pane-intro--aside">
       <span class="bookkeeping-eyebrow">Paper to Database</span>
-      <h3>Digitized Bookkeeping Documents</h3>
+      <h3 class="with-tip">Digitized Bookkeeping Documents {{ info_tip("Upload or photograph paper records. Kumbu reads the rows, flags anything unusual, and keeps the original file for audits.") }}</h3>
       <p>Scan paper ledgers, receipts, and cashbooks, then review extracted rows, audit flags, and funding checks in one place.</p>
     </div>
     </div>
@@ -164,7 +166,7 @@ bookkeeping-table__col--text
       <div class="bk-live-workspace-panel__top">
         <div class="bk-live-workspace-panel__lead">
           <span class="bookkeeping-eyebrow">Live Bookkeeping</span>
-          <h3>Workbook Table</h3>
+          <h3 class="with-tip">Workbook Table {{ info_tip("Type straight into the cells, then save. Pick a month to see its rows. Funders see this table on your profile.") }}</h3>
           <p class="bookkeeping-sheet__note">Scroll inside the workbook to review all visible rows. Changes autosave after you pause typing.</p>
         </div>
         {% if own %}
@@ -190,7 +192,7 @@ bookkeeping-table__col--text
           <div class="bk-live-access-card{% if not bookkeeping_offline or not bookkeeping_offline.url %} bk-live-access-card--unavailable{% endif %}">
             <div class="bk-live-access-card__intro">
               <span class="bookkeeping-eyebrow">Offline Access</span>
-              <h4>Bookkeeping Offline App</h4>
+              <h4 class="with-tip">Bookkeeping Offline App {{ info_tip("Open this link on a phone or laptop to keep bookkeeping with no internet. Changes sync automatically when you reconnect.") }}</h4>
               <p>{% if bookkeeping_offline and bookkeeping_offline.url %}Open here or scan from another device.{% else %}Open here now. Public QR sharing is not configured yet.{% endif %}</p>
             </div>
             <div class="bk-live-access-card__body{% if bookkeeping_offline and bookkeeping_offline.url %} has-qr{% endif %}">
@@ -861,7 +863,7 @@ bookkeeping-table__col--text
         <i class="fas fa-boxes-stacked"></i>
         <div>
           <span class="bookkeeping-eyebrow">Audit Baseline</span>
-          <h3>Tool Inventory</h3>
+                <h3 class="with-tip">Tool Inventory {{ info_tip("Tools and equipment found in your records. Funders use this as a baseline to check that assets are accounted for.") }}</h3>
         </div>
       </div>
       <form method="POST" action="{{ url_for('main.update_bookkeeping_inventory', cbo_id=cbo.id) }}" class="bk-audit-panel__form" data-bookkeeping-async="true">
@@ -883,7 +885,7 @@ bookkeeping-table__col--text
         <i class="fas fa-hand-holding-heart"></i>
         <div>
           <span class="bookkeeping-eyebrow">Donation Audit</span>
-          <h3>Grant Verification</h3>
+          <h3 class="with-tip">Grant Verification {{ info_tip("Grants and donations found in your documents, checked against public sources where possible.") }}</h3>
         </div>
       </div>
       <form method="POST" action="{{ url_for('main.upload_funding_audit_document', cbo_id=cbo.id) }}" enctype="multipart/form-data" class="bk-audit-panel__form" data-bookkeeping-async="true">

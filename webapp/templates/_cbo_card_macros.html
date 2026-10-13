@@ -1,4 +1,5 @@
 {% from "_contact_macros.html" import render_funder_contact_modal %}
+{% from "_ui_macros.html" import info_tip %}
 
 {% macro render_cbo_card(item, ai_search_active, search_query='') %}
   {% set cbo = item.cbo %}
@@ -20,62 +21,68 @@
     {% set profile_url = url_for('main.cbo_profile', slug=cbo.slug) %}
   {% endif %}
 
-  <article class="cbo-card" data-saved-cbo-card data-cbo-slug="{{ cbo.slug }}">
-    <a href="{{ profile_url }}" class="cbo-card__stretch-link" aria-label="Open {{ p.get('name', cbo.name) }} profile"></a>
+  {% set display_name = p.get('name', cbo.name) %}
+  {% set location_label = p.get('location', cbo.location) or 'Location TBD' %}
+  {% set founded = p.get('founded_year', cbo.founded_year) %}
+  <article class="cbo-card cbo-card--sleek" data-saved-cbo-card data-cbo-slug="{{ cbo.slug }}">
+    <a href="{{ profile_url }}" class="cbo-card__stretch-link" aria-label="Open {{ display_name }} profile"></a>
     <div class="cbo-card__content">
       <div class="card-header-bar">
-        <div class="card-title-row">
-          <div class="card-title-row__name">
-            {% if p.get('profile_image') %}
-              <img class="cbo-card__logo" src="{{ url_for('main.cbo_profile_image', slug=cbo.slug) }}" alt="">
-            {% endif %}
-            <h2>{{ p.get('name', cbo.name) }}</h2>
-          </div>
-          {% if item.has_feed_update %}
-          <span class="card-feed-update">New update</span>
+        <div class="card-identity">
+          {% if p.get('profile_image') %}
+            <img class="cbo-card__logo" src="{{ url_for('main.cbo_profile_image', slug=cbo.slug) }}" alt="">
+          {% else %}
+            {% set initials_source = display_name.split() %}
+            <span class="cbo-card__logo cbo-card__logo--initials" aria-hidden="true" translate="no">{{ (initials_source[0][:1] ~ (initials_source[1][:1] if initials_source|length > 1 else ''))|upper }}</span>
           {% endif %}
-          <div class="card-title-row__meta">
-            <span class="data-badge data-badge--{{ badge }} data-badge--sm">
-              {% if badge == 'gold' %}🥇{% elif badge == 'silver' %}🥈{% else %}🥉{% endif %}
-              Data Quality: {{ badge | title }}
-            </span>
-            {% if item.can_save_by_viewer %}
-              <div class="save-cbo-region" data-save-cbo-region>
-                <button
-                  type="button"
-                  class="save-cbo-button save-cbo-button--warm save-cbo-button--compact"
-                  data-save-cbo-button
-                  data-cbo-slug="{{ cbo.slug }}"
-                  data-save-cbo-url="{{ url_for('main.api_toggle_saved_cbo', slug=cbo.slug) }}"
-                  data-unsaved-label="Save"
-                  data-saved-label="Saved"
-                  data-saved="{{ 'true' if item.saved_by_viewer else 'false' }}"
-                  aria-pressed="{{ 'true' if item.saved_by_viewer else 'false' }}"
-                ><i class="{{ 'fas' if item.saved_by_viewer else 'far' }} fa-bookmark"></i><span>{{ 'Saved' if item.saved_by_viewer else 'Save' }}</span></button>
-                <div class="save-cbo-status" data-save-cbo-status hidden></div>
-              </div>
-            {% endif %}
+          <div class="card-identity__text">
+            <h2 translate="no">{{ display_name }}</h2>
+            <span class="card-identity__location"><i class="fas fa-location-dot" aria-hidden="true"></i> <span translate="no">{{ location_label }}</span></span>
           </div>
+          {% if item.can_save_by_viewer %}
+            <div class="save-cbo-region" data-save-cbo-region>
+              <button
+                type="button"
+                class="save-cbo-button save-cbo-button--warm save-cbo-button--compact"
+                data-save-cbo-button
+                data-cbo-slug="{{ cbo.slug }}"
+                data-save-cbo-url="{{ url_for('main.api_toggle_saved_cbo', slug=cbo.slug) }}"
+                data-unsaved-label="Save"
+                data-saved-label="Saved"
+                data-saved="{{ 'true' if item.saved_by_viewer else 'false' }}"
+                aria-pressed="{{ 'true' if item.saved_by_viewer else 'false' }}"
+              ><i class="{{ 'fas' if item.saved_by_viewer else 'far' }} fa-bookmark"></i><span>{{ 'Saved' if item.saved_by_viewer else 'Save' }}</span></button>
+              <div class="save-cbo-status" data-save-cbo-status hidden></div>
+            </div>
+          {% endif %}
         </div>
+
         {% if p.get('tagline') %}
           <p class="tagline">{{ p.tagline }}</p>
         {% endif %}
-        {% if classes %}
-        <div class="card-classifications">
-          {% for cls in classes %}
+      </div>
+
+        <div class="card-badges">
+          <span class="data-badge data-badge--{{ badge }} data-badge--sm">{{ badge | title }} data</span>
+          {{ info_tip("Data quality shows how complete and verified this organisation's records are. Gold profiles have the most evidence behind them.") }}
+          {% if item.has_feed_update %}
+          <span class="card-feed-update">New update</span>
+          {% endif %}
+          {% for cls in classes[:3] %}
             <span class="classification-tag classification-tag--{{ cls }}">{{ cls | title }}</span>
           {% endfor %}
+          {% if classes|length > 3 %}
+            <span class="classification-tag classification-tag--more">+{{ classes|length - 3 }}</span>
+          {% endif %}
         </div>
-        {% endif %}
-      </div>
 
       {% if score %}
       <div class="card-score-row">
-        <span class="score-label"><i class="fas fa-star"></i> Social Impact</span>
+        <span class="score-label with-tip">Social impact {{ info_tip('A 0 to 100 score built from the people reached, programme results, and community feedback this organisation has reported.') }}</span>
         <div class="score-bar-mini-wrap">
-          <div class="score-bar-mini" data-score="{{ score }}"></div>
+          <div class="score-bar-mini" data-score="{{ score }}" style="width: {{ [score, 100]|min }}%"></div>
         </div>
-        <span class="score-num">{{ score }}/100</span>
+        <span class="score-num">{{ score }}</span>
       </div>
       {% endif %}
 
@@ -116,24 +123,32 @@
         {% set fit_line = raw_summary %}
       {% endif %}
       <div class="card-funder-match">
-        <span><i class="fas fa-user-check"></i> Fits your saved interests</span>
+        <span><i class="fas fa-circle-check"></i> Fits your saved interests {{ info_tip('Based on the funding interests in your funder profile. Update them there to change which organisations are highlighted.') }}</span>
         {% if fit_line %}<p>{{ fit_line }}</p>{% endif %}
       </div>
       {% endif %}
 
-      <div class="card-meta">
-        <span><i class="fas fa-map-marker-alt"></i> {{ p.get('location', cbo.location) or 'Location TBD' }}</span>
-        <span><i class="fas fa-calendar"></i> Est. {{ p.get('founded_year', cbo.founded_year) or '—' }}</span>
-        {% if total_rev %}
-          <span><i class="fas fa-coins"></i> KSh {{ "{:,.0f}".format(total_rev) }}</span>
-        {% endif %}
-        {% if rev_growth is not none %}
-          <span class="{% if rev_growth >= 0 %}growth-up{% else %}growth-down{% endif %}">
-            <i class="fas fa-{% if rev_growth >= 0 %}arrow-up{% else %}arrow-down{% endif %}"></i>
-            {{ "%.1f"|format(rev_growth|abs) }}% rev Q/Q
-          </span>
-        {% endif %}
-      </div>
+      <dl class="card-facts">
+        <div>
+          <dt>Founded</dt>
+          <dd>{{ founded or '—' }}</dd>
+        </div>
+        <div>
+          <dt>Revenue</dt>
+          <dd>{% if total_rev %}KSh {{ "{:,.0f}".format(total_rev) }}{% else %}—{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Growth</dt>
+          <dd>
+            {% if rev_growth is not none %}
+              <span class="{% if rev_growth >= 0 %}growth-up{% else %}growth-down{% endif %}">
+                <i class="fas fa-{% if rev_growth >= 0 %}arrow-trend-up{% else %}arrow-trend-down{% endif %}" aria-hidden="true"></i>
+                {{ "%.1f"|format(rev_growth|abs) }}%
+              </span>
+            {% else %}—{% endif %}
+          </dd>
+        </div>
+      </dl>
 
       {% set impact_chips = [] %}
       {% for impact in (p.get('quantified_impact', [])) %}
@@ -155,7 +170,7 @@
 
       <div class="card-community-feedback{% if not featured_feedback and not feedback.get('recent_quotes') %} card-community-feedback--quiet{% endif %}">
         <div class="card-community-feedback__header">
-          <span class="card-community-feedback__title"><i class="fas fa-comments"></i> Community Feedback</span>
+          <span class="card-community-feedback__title with-tip"><i class="fas fa-comments"></i> Community Feedback {{ info_tip('Ratings and quotes sent by text message from people this organisation serves. Kumbu collects them directly from community members.') }}</span>
           {% if feedback.get('avg_rating') is not none %}
             <span class="card-community-feedback__rating">{{ feedback.get('avg_rating') }}/10</span>
           {% else %}
@@ -172,7 +187,7 @@
           {% set recent_quote = feedback.get('recent_quotes')[0] %}
           <p class="card-community-feedback__quote">"{{ recent_quote.get('quote') }}"</p>
         {% else %}
-          <p class="card-community-feedback__quote card-community-feedback__quote--empty">No community feedback yet.</p>
+          <p class="card-community-feedback__quote card-community-feedback__quote--empty">No feedback yet</p>
         {% endif %}
       </div>
 
@@ -182,11 +197,11 @@
 
       <div class="card-footer">
         {% if cbo.last_synced %}
-          <span class="sync-badge"><i class="fas fa-sync-alt"></i> Synced {{ cbo.last_synced.strftime('%b %d') }}</span>
+          <span class="sync-badge">Updated {{ cbo.last_synced.strftime('%b %d') }}</span>
         {% else %}
-          <span class="sync-badge pending"><i class="fas fa-clock"></i> Not yet synced</span>
+          <span class="sync-badge pending">Not yet synced</span>
         {% endif %}
-        <a href="{{ profile_url }}" class="view-link">View Profile <i class="fas fa-arrow-right"></i></a>
+        <a href="{{ profile_url }}" class="view-link">View profile <i class="fas fa-arrow-right"></i></a>
       </div>
     </div>
   </article>

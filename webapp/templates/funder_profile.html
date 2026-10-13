@@ -131,11 +131,11 @@
         <div class="funder-profile-grid funder-profile-grid--grant">
           <div class="form-group">
             <label for="grant_size_min">Minimum</label>
-            <input type="number" id="grant_size_min" name="grant_size_min" min="0" step="1000" value="{{ profile.grant_size_min if profile.grant_size_min is not none else '' }}" inputmode="numeric">
+            <input type="number" id="grant_size_min" name="grant_size_min" min="0" step="1000" value="{{ (profile.grant_size_min|int if profile.grant_size_min == profile.grant_size_min|int else profile.grant_size_min) if profile.grant_size_min is not none else '' }}" inputmode="numeric">
           </div>
           <div class="form-group">
             <label for="grant_size_max">Maximum</label>
-            <input type="number" id="grant_size_max" name="grant_size_max" min="0" step="1000" value="{{ profile.grant_size_max if profile.grant_size_max is not none else '' }}" inputmode="numeric">
+            <input type="number" id="grant_size_max" name="grant_size_max" min="0" step="1000" value="{{ (profile.grant_size_max|int if profile.grant_size_max == profile.grant_size_max|int else profile.grant_size_max) if profile.grant_size_max is not none else '' }}" inputmode="numeric">
           </div>
           <div class="form-group">
             <label for="grant_currency">Currency</label>

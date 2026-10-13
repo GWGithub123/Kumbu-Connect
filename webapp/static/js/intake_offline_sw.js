@@ -1,4 +1,11 @@
-const CACHE_NAME = 'kumbu-intake-offline-shell-v1';
+const CACHE_NAME = 'kumbu-intake-offline-shell-v2';
+
+const SHELL_ASSET_PATHS = [
+  '/static/css/main.css',
+  '/static/css/field_apps.css',
+  '/static/js/kumbu_ui.js',
+  '/static/js/intake_offline_app.js',
+];
 
 function scopeUrl() {
   return new URL(self.registration.scope);
@@ -10,6 +17,8 @@ function shellUrls() {
     scope.toString(),
     new URL('/static/css/main.css', scope.origin).toString(),
     new URL('/static/js/intake_offline_app.js', scope.origin).toString(),
+    new URL('/static/css/field_apps.css', scope.origin).toString(),
+    new URL('/static/js/kumbu_ui.js', scope.origin).toString(),
   ];
 }
 
@@ -98,7 +107,7 @@ self.addEventListener('fetch', function (event) {
   }
 
   const inScope = requestUrl.pathname.startsWith(scope.pathname);
-  const isShellAsset = requestUrl.pathname === '/static/css/main.css' || requestUrl.pathname === '/static/js/intake_offline_app.js';
+  const isShellAsset = SHELL_ASSET_PATHS.indexOf(requestUrl.pathname) !== -1;
 
   if (event.request.mode === 'navigate' && inScope) {
     event.respondWith(networkFirst(event.request));

@@ -1,0 +1,30 @@
+{% macro info_tip(text, label='How this works', align='center') -%}
+<span class="info-tip info-tip--{{ align }}" data-info-tip>
+  <button type="button" class="info-tip__trigger" aria-label="{{ label }}" aria-expanded="false"><i class="fas fa-circle-info" aria-hidden="true"></i></button>
+  <span class="info-tip__bubble" role="tooltip">{{ text }}</span>
+</span>
+{%- endmacro %}
+
+{% macro language_switch(extra_class='') -%}
+{% set active = ui_lang|default('en') %}
+{% set here = request.full_path if request.query_string else request.path %}
+<nav class="lang-switch {{ extra_class }}" aria-label="Language">
+  <a href="{{ url_for('i18n.set_language', code='en', next=here) }}" class="lang-switch__opt{% if active == 'en' %} is-active{% endif %}" data-lang-choice="en" translate="no" lang="en"{% if active == 'en' %} aria-current="true"{% endif %}>EN</a>
+  <a href="{{ url_for('i18n.set_language', code='sw', next=here) }}" class="lang-switch__opt{% if active == 'sw' %} is-active{% endif %}" data-lang-choice="sw" translate="no" lang="sw"{% if active == 'sw' %} aria-current="true"{% endif %}>SW</a>
+</nav>
+{%- endmacro %}
+
+{% macro field_appbar(context_label) -%}
+<header class="kf-appbar">
+  <div class="kf-appbar__inner">
+    <span class="kf-brand">
+      <img src="{{ url_for('static', filename='img/kumbu-connect-logo-mark.png') }}" alt="">
+      <span class="kf-brand__text">
+        <span translate="no">Kumbu Connect</span>
+        <span class="kf-brand__context">{{ context_label }}</span>
+      </span>
+    </span>
+    {{ language_switch('lang-switch--light') }}
+  </div>
+</header>
+{%- endmacro %}

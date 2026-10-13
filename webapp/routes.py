@@ -3994,7 +3994,7 @@ def _build_local_quantified_impact(bookkeeping_context: dict, intake_context: di
         impacts.append({
             'icon_hint': 'clock',
             'metric_value': f'{months_covered:,}',
-            'metric_unit': 'months of operational evidence',
+            'metric_unit': 'month of operational evidence' if months_covered == 1 else 'months of operational evidence',
             'description': 'The profile now reflects longitudinal data rather than a single static snapshot.',
             'details': {
                 'raw_data': f"Growth series currently spans {months_covered:,} distinct month(s).",

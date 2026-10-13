@@ -4,9 +4,9 @@
 {% set kind_label = item.title.split(' from ')[0] if item.title and ' from ' in item.title else (item.title or 'Update') %}
 <article class="interest-post" data-cbo-slug="{{ item.cbo_slug }}" {% if item.activity_id %}data-activity-id="{{ item.activity_id }}"{% endif %}>
   <header class="interest-post__top">
-    <div class="interest-post__avatar" aria-hidden="true">{{ initials or 'C' }}</div>
+    <div class="interest-post__avatar" aria-hidden="true" translate="no">{{ initials or 'C' }}</div>
     <div class="interest-post__identity">
-      <a class="interest-post__name" href="{{ item.profile_url }}">{{ item.cbo_name }}</a>
+      <a class="interest-post__name" href="{{ item.profile_url }}" translate="no">{{ item.cbo_name }}</a>
       <span class="interest-post__headline">{{ kind_label }}{% if item.interest_labels %} · {{ item.interest_labels|join(' · ') }}{% endif %}</span>
       <span class="interest-post__time">{% if item.when_label %}{{ item.when_label }} · {% endif %}<i class="fas fa-globe-americas" aria-hidden="true"></i> Public</span>
     </div>
@@ -43,7 +43,7 @@
   <ul class="interest-post__comments">
     {% for comment in item.comments %}
     <li>
-      <strong>{{ comment.author }}</strong>
+      <strong translate="no">{{ comment.author }}</strong>
       <span>{{ comment.body }}</span>
     </li>
     {% endfor %}

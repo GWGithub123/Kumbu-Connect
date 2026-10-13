@@ -2,11 +2,12 @@
 {% block title %}CBO Marketplace — Kumbu Connect{% endblock %}
 {% from "_cbo_card_macros.html" import render_cbo_card %}
 {% from "_feed_post.html" import render_feed_post %}
+{% from "_ui_macros.html" import info_tip %}
 
 {% block content %}
 <div class="container container--browse">
   <div class="marketplace-header">
-    <h1><i class="fas fa-store"></i> CBO Marketplace</h1>
+    <h1 class="with-tip"><i class="fas fa-store"></i> CBO Marketplace {{ info_tip('Browse community-based organisations, compare their verified data, and save or contact the ones that fit your funding goals.', align='start') }}</h1>
     {% if ai_search_active %}
       <p class="marketplace-funder-note">These results follow your search{% if q %}: “{{ q }}”{% endif %}. Saved funding interests are scored separately, so a low profile-interest match does not weaken a search hit. <a href="{{ url_for('main.funder_profile') }}">Edit interests</a></p>
     {% elif funder_account and not funder_account.interest_labels %}
@@ -30,6 +31,7 @@
             <i class="fas fa-sliders-h"></i> Filters
           </button>
           <a href="{{ url_for('main.marketplace') }}" class="btn btn-outline">Clear</a>
+          {{ info_tip('Type what you are looking for in everyday words, such as "girls education in Kisumu". Use Filters to narrow by type, data quality, score or revenue. Clear resets everything.', label='How search works') }}
         </div>
       </div>
       <div id="aiSearchStatusBar" class="ai-search-status-bar" hidden aria-live="polite" aria-atomic="true">
@@ -117,11 +119,7 @@
       {% if show_interest_feed %}
       <div class="marketplace-map-stage marketplace-map-stage--inset">
         <div class="marketplace-map-toolbar">
-          <span class="marketplace-map-pill">{{ map_pins | length }} pinned</span>
-          <div class="marketplace-map-card__controls" aria-label="Map display controls">
-            <button type="button" class="map-view-toggle" data-map-view="hybrid">Hybrid</button>
-            <button type="button" class="map-view-toggle is-active" data-map-view="satellite">Satellite</button>
-          </div>
+          <span class="marketplace-map-pill-wrap with-tip"><span class="marketplace-map-pill">{{ map_pins | length }} pinned</span> {{ info_tip('Each pin is an organisation. Tap a pin to preview its profile. Pins update to match your search.', align='start') }}</span>
         </div>
         <div class="marketplace-map-overlays" id="marketplaceMapOverlays" aria-hidden="true"></div>
         <div id="marketplaceMap" class="marketplace-map-canvas marketplace-map-canvas--full"></div>
@@ -147,7 +145,7 @@
     {% if show_interest_feed %}
     <section class="interest-reel interest-reel--dock" aria-label="Updates matching your funding interests">
       <div class="interest-reel__header">
-        <h2>Interest feed – Tailored Just for you</h2>
+        <h2 class="with-tip">Interest feed {{ info_tip('Recent posts and profile updates from organisations that match the funding interests on your funder profile.') }}</h2>
       </div>
       {% if interest_highlights %}
       <div class="interest-reel__track">
@@ -162,11 +160,7 @@
     {% else %}
     <div class="marketplace-map-stage">
       <div class="marketplace-map-toolbar">
-        <span class="marketplace-map-pill">{{ map_pins | length }} pinned</span>
-        <div class="marketplace-map-card__controls" aria-label="Map display controls">
-          <button type="button" class="map-view-toggle" data-map-view="hybrid">Hybrid</button>
-          <button type="button" class="map-view-toggle is-active" data-map-view="satellite">Satellite</button>
-        </div>
+        <span class="marketplace-map-pill-wrap with-tip"><span class="marketplace-map-pill">{{ map_pins | length }} pinned</span> {{ info_tip('Each pin is an organisation. Tap a pin to preview its profile. Pins update to match your search.', align='start') }}</span>
       </div>
       <div class="marketplace-map-overlays" id="marketplaceMapOverlays" aria-hidden="true"></div>
       <div id="marketplaceMap" class="marketplace-map-canvas marketplace-map-canvas--full"></div>
@@ -333,7 +327,7 @@ let hoverCardState = null;
 let hoverCloseTimeout = null;
 let marketplaceRequestController = null;
 let mapsLoaderPromise = null;
-let marketplaceViewMode = 'satellite';
+let marketplaceViewMode = 'hybrid';
 let mapLoadingRunnerFrameId = 0;
 let mapLoadingRunnerStartTime = 0;
 let aiStatusInterval = null;
@@ -708,7 +702,7 @@ function focusMapOnFeedPost(post) {
   if (feedHomeZoom === null) {
     feedHomeZoom = currentZoom;
   }
-  const gentleZoom = Math.min(feedHomeZoom + 0.65, 7.4);
+  const gentleZoom = Math.min(feedHomeZoom + 0.65, 9);
   item.marker.setZIndex((google.maps.Marker.MAX_ZINDEX || 1000) + 1);
   item.marker.setLabel({
     text: feedPinTag(item.pin && item.pin.name),
@@ -2257,12 +2251,42 @@ function kenyaBounds() {
   );
 }
 
+function kenyaPinBounds() {
+  const kenya = kenyaBounds();
+  const bounds = new google.maps.LatLngBounds();
+  let count = 0;
+  mapMarkers.forEach(item => {
+    const position = item.marker && typeof item.marker.getPosition === 'function' ? item.marker.getPosition() : null;
+    if (position && kenya.contains(position)) {
+      bounds.extend(position);
+      count += 1;
+    }
+  });
+  if (count < 2) {
+    return kenya;
+  }
+  const span = bounds.toSpan();
+  const center = bounds.getCenter();
+  const halfLat = Math.max(span.lat() / 2 + 0.6, 1.6);
+  const halfLng = Math.max(span.lng() / 2 + 0.6, 1.6);
+  return new google.maps.LatLngBounds(
+    { lat: center.lat() - halfLat, lng: center.lng() - halfLng },
+    { lat: center.lat() + halfLat, lng: center.lng() + halfLng }
+  );
+}
+
 function applyFlatHomeView() {
   if (isGlobeMap() || !marketplaceMapInstance || typeof marketplaceMapInstance.fitBounds !== 'function' || aiSearchActive) {
     return;
   }
   google.maps.event.trigger(marketplaceMapInstance, 'resize');
-  marketplaceMapInstance.fitBounds(kenyaBounds(), 28);
+  marketplaceMapInstance.fitBounds(kenyaPinBounds(), { top: 44, right: 16, bottom: 12, left: 16 });
+  google.maps.event.addListenerOnce(marketplaceMapInstance, 'idle', () => {
+    const zoom = marketplaceMapInstance.getZoom() || 6;
+    if (zoom > 8.5) {
+      marketplaceMapInstance.setZoom(8.5);
+    }
+  });
 }
 
 function placeFlatMarkers(map) {
@@ -2300,6 +2324,7 @@ async function mountMarketplaceFlatMap(mapElement) {
     center: FLAT_MAP_HOME.center,
     zoom: 6,
     mapTypeId: marketplaceViewMode === 'hybrid' ? 'hybrid' : 'satellite',
+    isFractionalZoomEnabled: true,
     disableDefaultUI: true,
     gestureHandling: 'greedy',
     clickableIcons: false,

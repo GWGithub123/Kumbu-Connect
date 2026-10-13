@@ -1,6 +1,7 @@
 {% from "_brand.html" import brand_logo %}
+{% from "_ui_macros.html" import language_switch with context %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ ui_lang|default('en') }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,9 +11,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/kumbu-connect-logo-mark.png') }}">
+  <script src="{{ url_for('static', filename='js/kumbu_ui.js') }}" defer></script>
   {% block head %}{% endblock %}
 </head>
-<body{% if embedded_layout %} class="embedded-layout"{% endif %}>
+<body class="{% if embedded_layout %}embedded-layout {% endif %}{% block body_class %}{% endblock %}">
   {% set has_developer_access = current_user.is_authenticated and session.get('developer_access') %}
   {% set google_profile_picture_url = session.get('google_profile_picture_url') if current_user.is_authenticated and session.get('auth_provider') == 'google' else '' %}
   {% if not embedded_layout %}
@@ -51,11 +53,14 @@
             {% else %}
               <span class="nav-avatar nav-avatar--fallback" aria-hidden="true"><i class="fas fa-user-circle"></i></span>
             {% endif %}
-            <span class="nav-user__name">{{ current_user.nav_display_name }}</span>
+            <span class="nav-user__name" translate="no">{{ current_user.nav_display_name }}</span>
             <span class="badge {{ 'badge-developer' if has_developer_access else 'badge-' ~ current_user.role_badge_class }}">{{ 'DEVELOPER' if has_developer_access else current_user.role_badge_label }}</span>
           {% if funder_nav_profile %}</a>{% else %}</span>{% endif %}
+          {{ language_switch() }}
+          <a href="{{ url_for('i18n.settings') }}" class="nav-settings-link{% if request.endpoint == 'i18n.settings' %} is-current{% endif %}" aria-label="Settings" title="Settings"><i class="fas fa-gear" aria-hidden="true"></i></a>
           <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline">Logout</a>
         {% else %}
+          {{ language_switch() }}
           <a href="{{ url_for('auth.login') }}">Login</a>
           <a href="{{ url_for('auth.claim_account') }}" class="btn btn-sm btn-outline">Claim CBO Account</a>
           <a href="{{ url_for('auth.developer_login') }}" class="btn btn-sm btn-primary">Developer Login</a>

@@ -23,6 +23,7 @@ class User(UserMixin, db.Model):
     password_is_temporary = db.Column(db.Boolean, nullable=False, default=False)
     role = db.Column(db.String(20), nullable=False)          # 'funder' | 'cbo' | 'funder_cbo'
     account_status = db.Column(db.String(20), nullable=False, default='active')
+    preferred_language = db.Column(db.String(8), nullable=False, default='en')
     display_name = db.Column(db.String(255), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -564,6 +565,21 @@ class CBOActivityLike(db.Model):
 
     user = db.relationship('User', foreign_keys=[user_id])
     activity = db.relationship('CBOActivity', foreign_keys=[activity_id])
+
+
+class UiTranslation(db.Model):
+    """Cached translation of one interface string."""
+    __tablename__ = 'ui_translations'
+    __table_args__ = (
+        db.UniqueConstraint('lang', 'source_hash', name='uq_ui_translation'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    lang = db.Column(db.String(8), nullable=False, index=True)
+    source_hash = db.Column(db.String(64), nullable=False)
+    source_text = db.Column(db.Text, nullable=False)
+    translated_text = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class CBOActivityComment(db.Model):

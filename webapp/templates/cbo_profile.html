@@ -117,6 +117,7 @@
     <section class="profile-header">
       {# ── Badge + classifications row ── #}
       <div class="header-badges-row">
+        <div class="header-badges-row__tags">
         {% set badge = cbo.data_quality_badge or 'bronze' %}
         <span class="data-badge data-badge--{{ badge }}">
           {% if badge == 'gold' %}<i class="fas fa-medal"></i> Data Quality: Gold
@@ -135,6 +136,8 @@
             <i class="fas fa-star"></i> Social Impact: {{ cbo.social_impact_score }}/100
           </span>
         {% endif %}
+        </div>
+        <div class="profile-header__actions">
         {% if viewer_can_save %}
           <div class="save-cbo-region profile-header__save-group" data-save-cbo-region>
             <button
@@ -159,13 +162,14 @@
             <a class="btn btn-primary btn-sm" href="{{ url_for('auth.logout', next=url_for('main.cbo_profile', slug=cbo.slug, contact=1)) }}">Sign in as a funder</a>
           </div>
         {% endif %}
+        </div>
       </div>
       <div class="profile-header__identity">
         {% if profile.get('profile_image') %}
           <img class="profile-header__logo" src="{{ url_for('main.cbo_profile_image', slug=cbo.slug) }}" alt="">
         {% endif %}
         <div>
-          <h1>{{ profile.get('name', cbo.name) }}</h1>
+          <h1 translate="no">{{ profile.get('name', cbo.name) }}</h1>
           {% if profile.get('tagline') %}
             <p class="tagline">{{ profile.tagline }}</p>
           {% endif %}
@@ -289,7 +293,7 @@
         </div>
         {% endif %}
       </div>
-      <a href="{{ url_for('main.funder_profile') }}" class="btn btn-outline btn-sm">Edit interests</a>
+      <a href="{{ url_for('main.funder_profile') }}" class="btn btn-outline btn-sm funder-banner-edit">Edit interests</a>
     </aside>
     {% endif %}
 
@@ -360,9 +364,9 @@
                 <ul class="fp-people fp-people--inline">
                   {% for person in leadership.get('people') or [] %}
                   <li class="fp-person">
-                    <span class="fp-person__avatar" aria-hidden="true">{{ (person.get('name') or '?')[0]|upper }}</span>
+                    <span class="fp-person__avatar" aria-hidden="true" translate="no">{{ (person.get('name') or '?')[0]|upper }}</span>
                     <div class="fp-person__body">
-                      <p class="fp-person__name">{{ person.get('name') }}</p>
+                      <p class="fp-person__name" translate="no">{{ person.get('name') }}</p>
                       {% if person.get('role') %}<p class="fp-person__role">{{ person.role }}</p>{% endif %}
                       {% if person.get('notes') %}<p class="fp-person__detail">{{ person.notes }}</p>{% endif %}
                     </div>

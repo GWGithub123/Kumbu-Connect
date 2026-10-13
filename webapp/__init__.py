@@ -64,9 +64,11 @@ def create_app() -> Flask:
     register_funder_alert_listeners()
 
     from .auth import auth_bp
+    from .i18n import i18n_bp
     from .routes import main_bp
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(i18n_bp)
     app.register_blueprint(main_bp)
 
     with app.app_context():
@@ -106,17 +108,20 @@ def _configure_sqlite(app) -> None:
 def _ensure_runtime_schema() -> None:
     inspector = inspect(db.engine)
     dialect_name = db.engine.dialect.name
+    timestamp_type = 'TIMESTAMP' if dialect_name.startswith('postgresql') else 'DATETIME'
+    boolean_false = 'FALSE' if dialect_name.startswith('postgresql') else '0'
     table_columns = {
         'users': {
             'account_status': "ALTER TABLE users ADD COLUMN account_status VARCHAR(20) NOT NULL DEFAULT 'active'",
-            'password_is_temporary': 'ALTER TABLE users ADD COLUMN password_is_temporary BOOLEAN NOT NULL DEFAULT 0',
+            'password_is_temporary': f'ALTER TABLE users ADD COLUMN password_is_temporary BOOLEAN NOT NULL DEFAULT {boolean_false}',
+            'preferred_language': "ALTER TABLE users ADD COLUMN preferred_language VARCHAR(8) NOT NULL DEFAULT 'en'",
         },
         'cbos': {
             'bookkeeping_template_json': "ALTER TABLE cbos ADD COLUMN bookkeeping_template_json TEXT DEFAULT '{}'",
             'bookkeeping_workspace_entries_json': "ALTER TABLE cbos ADD COLUMN bookkeeping_workspace_entries_json TEXT DEFAULT '[]'",
             'web_research_json': "ALTER TABLE cbos ADD COLUMN web_research_json TEXT DEFAULT '{}'",
-            'web_research_verified_at': 'ALTER TABLE cbos ADD COLUMN web_research_verified_at DATETIME',
-            'web_research_refreshed_at': 'ALTER TABLE cbos ADD COLUMN web_research_refreshed_at DATETIME',
+            'web_research_verified_at': f'ALTER TABLE cbos ADD COLUMN web_research_verified_at {timestamp_type}',
+            'web_research_refreshed_at': f'ALTER TABLE cbos ADD COLUMN web_research_refreshed_at {timestamp_type}',
         },
         'bookkeeping_documents': {
             'client_submission_id': "ALTER TABLE bookkeeping_documents ADD COLUMN client_submission_id VARCHAR(64) DEFAULT ''",
@@ -131,7 +136,7 @@ def _ensure_runtime_schema() -> None:
             'provisioning_error': "ALTER TABLE google_form_responses ADD COLUMN provisioning_error TEXT DEFAULT ''",
             'provisioned_user_id': 'ALTER TABLE google_form_responses ADD COLUMN provisioned_user_id INTEGER',
             'provisioned_cbo_id': 'ALTER TABLE google_form_responses ADD COLUMN provisioned_cbo_id INTEGER',
-            'provisioned_at': 'ALTER TABLE google_form_responses ADD COLUMN provisioned_at DATETIME',
+            'provisioned_at': f'ALTER TABLE google_form_responses ADD COLUMN provisioned_at {timestamp_type}',
         },
         'google_form_uploads': {
             'storage_backend': "ALTER TABLE google_form_uploads ADD COLUMN storage_backend VARCHAR(20) DEFAULT 'local'",

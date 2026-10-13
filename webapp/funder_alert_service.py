@@ -248,6 +248,11 @@ def render_funder_alert_email(
             + ''.join(fact_cells)
             + '</tr></table></td></tr>'
         )
+    detail_paragraphs = [part.strip() for part in (detail or intro).split('\n') if part.strip()][:3]
+    detail_html = ''.join(
+        f'<p style="margin:0 0 14px;">{html.escape(paragraph)}</p>'
+        for paragraph in detail_paragraphs
+    )
     document = f'''<!DOCTYPE html>
 <html>
 <body style="margin:0;padding:0;background:#f6f4f1;">
@@ -267,7 +272,7 @@ def render_funder_alert_email(
           </tr></table>
         </td></tr>
         <tr><td style="padding:18px 44px 8px;font-family:Helvetica,Arial,sans-serif;color:#243049;font-size:17px;line-height:1.55;">
-          {''.join(f'<p style="margin:0 0 14px;">{html.escape(paragraph)}</p>' for paragraph in [part.strip() for part in (detail or intro).split('\n') if part.strip()][:3])}
+          {detail_html}
         </td></tr>
         {programs_block}
         {facts_block}

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_feed_post.html" import render_feed_post %}
+{% from "_ui_macros.html" import info_tip %}
 {% block title %}Peer feed — Kumbu Connect{% endblock %}
 
 {% block content %}
@@ -8,17 +9,13 @@
     <div class="peer-feed-map">
       <div class="marketplace-map-toolbar peer-feed-map__toolbar">
         <span class="marketplace-map-pill">{{ map_pins | length }} pinned</span>
-        <div class="marketplace-map-card__controls" aria-label="Map display controls">
-          <button type="button" class="map-view-toggle is-active" data-peer-map-view="roadmap">Map</button>
-          <button type="button" class="map-view-toggle" data-peer-map-view="satellite">Satellite</button>
-        </div>
       </div>
       <div id="peerFeedMap" class="peer-feed-map__canvas"></div>
     </div>
 
     <section class="interest-reel interest-reel--dock" aria-label="Peer feed">
       <div class="interest-reel__header">
-        <h2>Peer feed</h2>
+        <h2 class="with-tip">Peer feed {{ info_tip('Updates from other community organisations on Kumbu Connect. Like or comment as your organisation, and search to find groups doing similar work near you.') }}</h2>
       </div>
       <form class="peer-feed-search" method="get" action="{{ url_for('main.cbo_peer_feed') }}">
         <input type="search" name="q" value="{{ q or '' }}" placeholder="Search a name, a region, or the kind of work…" aria-label="Search organisations">
@@ -101,7 +98,7 @@
   };
   let map = null;
   let markers = [];
-  let viewMode = 'roadmap';
+  const viewMode = 'hybrid';
   let focusedMarker = null;
   let focusedPost = null;
   let homeZoom = null;
@@ -154,7 +151,24 @@
       });
       return;
     }
-    map.fitBounds(kenyaBounds(), 28);
+    const kenya = kenyaBounds();
+    const inKenya = markers
+      .map(item => item.marker.getPosition())
+      .filter(position => position && kenya.contains(position));
+    if (inKenya.length < 2) {
+      map.fitBounds(kenya, 12);
+      return;
+    }
+    const pinBounds = new google.maps.LatLngBounds();
+    inKenya.forEach(position => pinBounds.extend(position));
+    const span = pinBounds.toSpan();
+    const center = pinBounds.getCenter();
+    const halfLat = Math.max(span.lat() / 2 + 0.6, 1.6);
+    const halfLng = Math.max(span.lng() / 2 + 0.6, 1.6);
+    map.fitBounds(new google.maps.LatLngBounds(
+      { lat: center.lat() - halfLat, lng: center.lng() - halfLng },
+      { lat: center.lat() + halfLat, lng: center.lng() + halfLng }
+    ), { top: 44, right: 16, bottom: 12, left: 16 });
   }
 
   function tagFor(name) {
@@ -180,7 +194,7 @@
     if (homeZoom === null) {
       homeZoom = map.getZoom() || 6;
     }
-    const gentleZoom = Math.min(homeZoom + 0.65, 8);
+    const gentleZoom = Math.min(homeZoom + 0.65, 9);
     item.marker.setZIndex((google.maps.Marker.MAX_ZINDEX || 1000) + 1);
     item.marker.setLabel({
       text: tagFor(item.pin && item.pin.name),
@@ -230,24 +244,13 @@
     }, { passive: true });
   }
 
-  document.querySelectorAll('[data-peer-map-view]').forEach(button => {
-    button.addEventListener('click', () => {
-      viewMode = button.getAttribute('data-peer-map-view') || 'roadmap';
-      document.querySelectorAll('[data-peer-map-view]').forEach(other => {
-        other.classList.toggle('is-active', other === button);
-      });
-      if (map) {
-        map.setMapTypeId(viewMode);
-      }
-    });
-  });
-
   async function mount() {
     const { Map } = await google.maps.importLibrary('maps');
     map = new Map(canvas, {
       center: home.center,
       zoom: 6,
       mapTypeId: viewMode,
+      isFractionalZoomEnabled: true,
       disableDefaultUI: true,
       gestureHandling: 'greedy',
       clickableIcons: false,
